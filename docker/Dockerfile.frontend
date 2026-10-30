@@ -1,0 +1,13 @@
+# Frontend de InnovaBot: build estático de la SPA React.
+# En producción el frontend se publica en Vercel; este Dockerfile queda como
+# alternativa de build estático (nginx) para pruebas locales completas.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html

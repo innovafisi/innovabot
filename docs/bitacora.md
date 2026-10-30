@@ -5,7 +5,7 @@
 
 ## Estado actual (2026-10-30, cierre de sesión 1)
 
-- Planificación **completa, validada y revisada**: cambio OpenSpec `add-fisi-rag-chatbot` con proposal, 6 specs de capabilities, design sin preguntas abiertas y **40 tareas** en 7 grupos. Revisión cruzada de specs: 4 conflictos detectados y corregidos (§7).
+- Planificación **completa, validada y revisada**: cambio OpenSpec `add-fisi-rag-chatbot` con proposal, 6 specs de capabilities, design sin preguntas abiertas y **41 tareas** en 7 grupos. Revisión cruzada de specs: 4 conflictos detectados y corregidos (§7).
 - Infraestructura Huawei Cloud **provisionada y verificada** (ECS, RDS con pgvector, red y security groups).
 - ECS con Ubuntu Server **listo para el grupo 7**: actualizado, Docker instalado, swap de 4 GB, SSH endurecido, conectividad al RDS verificada.
 - DNS `innovabot.duckdns.org` **apuntando a la EIP** y verificado.
@@ -179,7 +179,7 @@ Verificado **sin** conflictos: orden de chequeos (longitud → rate limit → re
 
 | Fecha | Sesión | Hitos |
 |---|---|---|
-| 2026-10-30 | **S1 — Planificación y entorno** | Propuesta OpenSpec completa (16 decisiones, 6 specs, 40 tareas) · Infra Huawei provisionada (ECS, RDS+pgvector, red) · Setup ECS (Docker, swap, SSH) · DuckDNS configurado · Prototipo Lima aprobado · Auditoría de seguridad del repo · AGENTS.md, KISS, gitleaks · Cambio de modelo principal a `deepseek-v4.1-flash` (endpoint OpenAI de MaaS) · Revisión de conflictos entre specs (4 corregidos) |
+| 2026-10-30 | **S1 — Planificación y entorno** | Propuesta OpenSpec completa (16 decisiones, 6 specs, 41 tareas) · Infra Huawei provisionada (ECS, RDS+pgvector, red) · Setup ECS (Docker, swap, SSH) · DuckDNS configurado · Prototipo Lima aprobado · Auditoría de seguridad del repo · AGENTS.md, KISS, gitleaks · Cambio de modelo principal a `deepseek-v4.1-flash` (endpoint OpenAI de MaaS) · Revisión de conflictos entre specs (4 corregidos) |
 
 ## 10. Convención para actualizar esta bitácora
 

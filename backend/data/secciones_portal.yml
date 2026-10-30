@@ -1,0 +1,11 @@
+# Secciones del portal central UNMSM (unmsm.edu.pe) que se ingieren.
+# Solo las secciones listadas aquí se scrapean (spec knowledge-ingestion).
+# Formato: nombre + url por sección; ajusta la lista según lo que el equipo
+# considere relevante (admisión, calendario, bienestar, trámites, etc.).
+secciones:
+  - nombre: Admisión
+    url: https://www.unmsm.edu.pe/formacion-academica/admision
+  - nombre: Carreras de pregrado
+    url: https://www.unmsm.edu.pe/formacion-academica/carreras-de-pregrado
+  - nombre: Vida universitaria (bienestar)
+    url: https://www.unmsm.edu.pe/comunidad/vida-universitaria

@@ -1,0 +1,16 @@
+# Backend de InnovaBot: FastAPI (API web + webhook Telegram + ingesta batch).
+# La imagen incluye el extra [ingest] porque la ingesta corre en el mismo
+# contenedor (`docker compose run ingest`).
+FROM python:3.12-slim
+
+WORKDIR /srv
+
+COPY backend/pyproject.toml ./
+COPY backend/app ./app
+
+RUN pip install --no-cache-dir ".[ingest]"
+
+# Sin puertos publicados: en producción solo Caddy expone 80/443 y proxya a app.
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

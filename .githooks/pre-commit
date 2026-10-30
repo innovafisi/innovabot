@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Hook pre-commit de gitleaks (tarea 1.6): bloquea el commit si hay secretos
+# en los cambios staged. El repo es público: si marca un hallazgo, ROTA la
+# credencial afectada antes de seguir (AGENTS.md).
+#
+# Instalación (una vez por clon, lo ejecuta el equipo):
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "ERROR: gitleaks no está instalado."
+  echo "Instálalo: https://github.com/gitleaks/gitleaks/releases"
+  echo "El commit se bloquea para proteger el repo público."
+  exit 1
+fi
+
+gitleaks protect --staged --verbose --config .gitleaks.toml

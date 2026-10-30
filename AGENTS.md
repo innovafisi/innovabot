@@ -13,7 +13,7 @@ Estado: **planificación completa, sin código todavía**. Todo el plan vive en 
 Este repo usa OpenSpec con schema `spec-driven`. La fuente de verdad del comportamiento está en los specs, no en este archivo.
 
 - **Antes de implementar algo nuevo**: usa los workflows `opsx` (`/opsx:propose`, `/opsx:apply`, `/opsx:archive`). No edites código de features sin un cambio OpenSpec que lo respalde.
-- **Cambio activo**: `openspec/changes/add-fisi-rag-chatbot/` — `proposal.md` (qué y por qué), `specs/` (comportamiento por capability), `design.md` (cómo: TODAS las decisiones técnicas), `tasks.md` (39 tareas con verificación cada una).
+- **Cambio activo**: `openspec/changes/add-fisi-rag-chatbot/` — `proposal.md` (qué y por qué), `specs/` (comportamiento por capability), `design.md` (cómo: TODAS las decisiones técnicas), `tasks.md` (41 tareas con verificación cada una, en 7 grupos).
 - **Para aplicar**: sigue `tasks.md` en orden, marcando los checkboxes al completar. Cada tarea dice cómo verificarse — no la des por hecha sin esa verificación.
 - **Decisiones de producto ya tomadas** (no las reabras): están en `design.md` con sus alternativas descartadas. Si el usuario pide cambiar una, actualiza specs/design/tasks para mantenerlos coherentes.
 - **Idioma**: todos los artifacts OpenSpec, READMEs, mensajes de usuario y respuestas del bot van en **español**.

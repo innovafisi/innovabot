@@ -1,0 +1,6 @@
+# Fixture: solo estas dos secciones deben scrapearse (tarea 2.4).
+secciones:
+  - nombre: Admisión
+    url: https://www.unmsm.edu.pe/formacion-academica/admision
+  - nombre: Vida universitaria
+    url: https://www.unmsm.edu.pe/comunidad/vida-universitaria

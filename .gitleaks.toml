@@ -1,0 +1,9 @@
+# Configuración de gitleaks para el repo público de InnovaBot (tarea 1.6).
+# Extiende el ruleset por defecto de gitleaks (claves de API, tokens, claves
+# privadas, etc.). Si gitleaks marca un hallazgo: rota la credencial ANTES de
+# seguir (regla de AGENTS.md).
+
+title = "gitleaks de InnovaBot"
+
+[extend]
+useDefault = true
