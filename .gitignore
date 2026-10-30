@@ -1,0 +1,35 @@
+# config
+.claude/
+
+# secrets / entorno — NUNCA commitear
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Ollama / modelos (volúmenes locales de prueba)
+ollama-data/
+
+# IDEs y SO
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store

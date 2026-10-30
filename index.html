@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InnovaBot · FISI UNMSM — Prototipo de diseño</title>
+<style>
+  /* ── Tokens de identidad FISI ─────────────────────────────── */
+  :root {
+    --azul: #003b71;          /* primario */
+    --azul-oscuro: #00264a;   /* hover / profundidad */
+    --amarillo: #ffc72c;      /* acento */
+    --amarillo-oscuro: #e6b125;
+    --amarillo-texto: #c99400;/* amarillo legible sobre blanco */
+
+    /* Tema claro (por defecto) */
+    --fondo: #ffffff;
+    --fondo-alt: #f7f9fc;
+    --panel: #ffffff;
+    --cabecera: var(--azul);
+    --titulo: var(--azul);
+    --subtitulo: var(--amarillo-texto);
+    --descripcion: #295e93;
+    --texto: #1c2733;
+    --texto-claro: #ffffff;
+    --texto-suave: #8a99ab;
+    --borde: #dde4ec;
+    --burbuja-bot: #f1f4f8;
+    --enlace: var(--azul);
+    --puntos: #9db0c4;
+    --sombra: rgba(0, 59, 113, 0.08);
+  }
+
+  [data-theme="dark"] {
+    /* Tema oscuro: negro con matiz azul profundo */
+    --fondo: #0b0f16;
+    --fondo-alt: #0e141f;
+    --panel: #101724;
+    --cabecera: #0a2748;
+    --titulo: #ffffff;
+    --subtitulo: var(--amarillo);
+    --descripcion: #ffffff;
+    --texto: #e8edf4;
+    --texto-suave: #7c8ba0;
+    --borde: #263243;
+    --burbuja-bot: #1a2332;
+    --enlace: #8ab9f0;
+    --puntos: #5a6b80;
+    --sombra: rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--texto);
+    background: var(--fondo-alt);
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--fondo);
+    box-shadow: 0 0 32px var(--sombra);
+    transition: background 0.2s;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── Toggle de tema ──────────────────────────────────────── */
+  .btn-theme {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.1);
+    color: inherit;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+
+  .btn-theme:hover { background: rgba(255, 255, 255, 0.2); }
+  .btn-theme:active { transform: scale(0.94); }
+
+  [data-theme="dark"] .btn-theme {
+    border-color: var(--borde);
+    background: var(--panel);
+    color: var(--texto);
+  }
+
+  .chat-header .btn-theme {
+    position: static;
+    width: 38px;
+    height: 38px;
+    margin-left: auto;
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  /* ── Vista 1: Pantalla de inicio ─────────────────────────── */
+  .landing {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--fondo);
+    color: var(--texto);
+    text-align: center;
+    padding: 32px 20px;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .landing-content { max-width: 420px; }
+
+  .logo {
+    width: 88px;
+    height: 88px;
+    margin: 0 auto 20px;
+    background: var(--azul);
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 24px var(--sombra);
+  }
+
+  .landing h1 {
+    font-size: 2.1rem;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+    color: var(--titulo);
+    transition: color 0.2s;
+  }
+
+  .tagline {
+    color: var(--subtitulo);
+    font-weight: 700;
+    margin-bottom: 18px;
+    transition: color 0.2s;
+  }
+
+  .purpose {
+    font-size: 0.98rem;
+    line-height: 1.55;
+    color: var(--descripcion);
+    margin-bottom: 30px;
+    transition: color 0.2s;
+  }
+
+  .btn-start {
+    background: var(--amarillo);
+    color: var(--azul-oscuro);
+    border: none;
+    border-radius: 999px;
+    padding: 15px 38px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+
+  .btn-start:hover { background: var(--amarillo-oscuro); }
+  .btn-start:active { transform: scale(0.97); }
+
+  .footnote {
+    margin-top: 34px;
+    font-size: 0.75rem;
+    color: var(--texto-suave);
+  }
+
+  /* ── Vista 2: Chat ───────────────────────────────────────── */
+  .chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--cabecera);
+    color: var(--texto-claro);
+    padding: 12px 16px;
+    transition: background 0.2s;
+  }
+
+  .btn-back {
+    background: none;
+    border: none;
+    color: var(--texto-claro);
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+
+  .btn-back:hover { background: rgba(255, 255, 255, 0.12); }
+
+  .avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--amarillo);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .bot-name { font-weight: 700; font-size: 0.95rem; }
+  .bot-status { font-size: 0.75rem; color: #a9f0b5; }
+  .bot-status::before { content: "●"; margin-right: 4px; }
+
+  .thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--fondo-alt);
+    transition: background 0.2s;
+  }
+
+  .msg { max-width: 82%; border-radius: 14px; padding: 11px 14px; line-height: 1.5; font-size: 0.93rem; }
+
+  .msg-bot {
+    align-self: flex-start;
+    background: var(--burbuja-bot);
+    border: 1px solid var(--borde);
+    border-top-left-radius: 4px;
+    color: var(--texto);
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    background: var(--azul);
+    color: var(--texto-claro);
+    border-top-right-radius: 4px;
+  }
+
+  .citas {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--borde);
+    font-size: 0.78rem;
+  }
+
+  .citas strong { color: var(--enlace); display: block; margin-bottom: 4px; }
+
+  .citas a {
+    color: var(--enlace);
+    display: block;
+    margin-top: 3px;
+    text-decoration: none;
+    border-left: 3px solid var(--amarillo);
+    padding-left: 8px;
+  }
+
+  .citas a:hover { text-decoration: underline; }
+
+  .typing { display: inline-flex; gap: 4px; align-items: center; }
+  .typing span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--puntos);
+    animation: pulso 1s infinite ease-in-out;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.15s; }
+  .typing span:nth-child(3) { animation-delay: 0.3s; }
+
+  @keyframes pulso {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border-top: 1px solid var(--borde);
+    transition: background 0.2s;
+  }
+
+  .composer input {
+    flex: 1;
+    border: 1.5px solid var(--borde);
+    border-radius: 999px;
+    padding: 12px 18px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    color: var(--texto);
+    background: var(--fondo);
+    outline: none;
+    transition: border-color 0.15s, background 0.2s;
+  }
+
+  .composer input:focus { border-color: var(--azul); }
+  [data-theme="dark"] .composer input:focus { border-color: var(--amarillo); }
+
+  .char-counter {
+    font-size: 0.72rem;
+    color: var(--texto-suave);
+    min-width: 46px;
+    text-align: right;
+  }
+
+  .char-counter.warn { color: var(--amarillo-texto); font-weight: 700; }
+  [data-theme="dark"] .char-counter.warn { color: var(--amarillo); }
+
+  .btn-send {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: none;
+    background: var(--azul);
+    color: #fff;
+    font-size: 1.05rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .btn-send:hover { background: var(--azul-oscuro); }
+  .btn-send:disabled { background: var(--puntos); cursor: not-allowed; }
+
+  @media (min-width: 768px) {
+    .landing h1 { font-size: 2.4rem; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ Vista 1: Pantalla de inicio ═══ -->
+  <section id="landing" class="landing">
+    <button id="btn-theme-landing" class="btn-theme" aria-label="Cambiar tema">🌙</button>
+    <div class="landing-content">
+      <div class="logo" aria-hidden="true">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H9l-4.2 3.6A1 1 0 0 1 3 18.8V5.5Z"
+                fill="#ffc72c"/>
+          <circle cx="8.6" cy="9.6" r="1.15" fill="#003b71"/>
+          <circle cx="12" cy="9.6" r="1.15" fill="#003b71"/>
+          <circle cx="15.4" cy="9.6" r="1.15" fill="#003b71"/>
+        </svg>
+      </div>
+      <h1>InnovaBot</h1>
+      <p class="tagline">Tu asistente de consultas sobre la FISI</p>
+      <p class="purpose">
+        Resuelve tus dudas sobre la Facultad de Ingeniería de Sistemas e
+        Informática de la UNMSM con respuestas basadas en fuentes oficiales,
+        siempre con citas para que verifiques la información.
+      </p>
+      <button id="btn-start" class="btn-start">Comenzar a chatear</button>
+      <p class="footnote">Facultad de Ingeniería de Sistemas e Informática · UNMSM</p>
+    </div>
+  </section>
+
+  <!-- ═══ Vista 2: Chat ═══ -->
+  <section id="chat" class="chat hidden">
+    <header class="chat-header">
+      <button id="btn-back" class="btn-back" aria-label="Volver al inicio">←</button>
+      <div class="avatar" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H9l-4.2 3.6A1 1 0 0 1 3 18.8V5.5Z"
+                fill="#003b71"/>
+          <circle cx="8.6" cy="9.6" r="1.15" fill="#ffc72c"/>
+          <circle cx="12" cy="9.6" r="1.15" fill="#ffc72c"/>
+          <circle cx="15.4" cy="9.6" r="1.15" fill="#ffc72c"/>
+        </svg>
+      </div>
+      <div>
+        <div class="bot-name">InnovaBot</div>
+        <div class="bot-status">en línea</div>
+      </div>
+      <button id="btn-theme-chat" class="btn-theme" aria-label="Cambiar tema">🌙</button>
+    </header>
+
+    <div id="thread" class="thread">
+      <div class="msg msg-bot">
+        ¡Hola! Soy InnovaBot. Pregúntame lo que quieras sobre la FISI:
+        admisión, planes de estudio, trámites o noticias.
+      </div>
+    </div>
+
+    <form id="chat-form" class="composer">
+      <input id="query-input" type="text" maxlength="500"
+             placeholder="Escribe tu consulta…" autocomplete="off">
+      <span id="char-counter" class="char-counter">0/500</span>
+      <button type="submit" class="btn-send" aria-label="Enviar">➤</button>
+    </form>
+  </section>
+
+</div>
+
+<script>
+  const landing = document.getElementById('landing');
+  const chat    = document.getElementById('chat');
+  const thread  = document.getElementById('thread');
+  const form    = document.getElementById('chat-form');
+  const input   = document.getElementById('query-input');
+  const counter = document.getElementById('char-counter');
+  const MAX_CHARS = 500;
+
+  /* ── Tema: claro por defecto, preferencia persistente ────── */
+  const themeButtons = [
+    document.getElementById('btn-theme-landing'),
+    document.getElementById('btn-theme-chat')
+  ];
+
+  function applyTheme(theme) {
+    if (theme === 'dark') {
+      document.documentElement.dataset.theme = 'dark';
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    themeButtons.forEach(b => { b.textContent = theme === 'dark' ? '☀️' : '🌙'; });
+    try { localStorage.setItem('theme', theme); } catch (e) { /* sin storage */ }
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  }
+
+  let savedTheme = 'light';
+  try { savedTheme = localStorage.getItem('theme') || 'light'; } catch (e) { /* sin storage */ }
+  applyTheme(savedTheme);
+
+  themeButtons.forEach(b => b.addEventListener('click', toggleTheme));
+
+  /* ── Navegación entre vistas ─────────────────────────────── */
+  document.getElementById('btn-start').addEventListener('click', () => {
+    landing.classList.add('hidden');
+    chat.classList.remove('hidden');
+    input.focus();
+  });
+
+  document.getElementById('btn-back').addEventListener('click', () => {
+    chat.classList.add('hidden');
+    landing.classList.remove('hidden');
+  });
+
+  /* ── Contador de caracteres (límite de 500) ──────────────── */
+  input.addEventListener('input', () => {
+    const len = input.value.length;
+    counter.textContent = len + '/' + MAX_CHARS;
+    counter.classList.toggle('warn', len >= MAX_CHARS * 0.9);
+  });
+
+  /* ── Envío de consulta (respuesta simulada) ──────────────── */
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    addUserMsg(text);
+    input.value = '';
+    counter.textContent = '0/' + MAX_CHARS;
+    counter.classList.remove('warn');
+
+    const typing = addTypingIndicator();
+    setTimeout(() => {
+      typing.remove();
+      addBotMsg(
+        'Esta es una respuesta de ejemplo del prototipo. En producción, ' +
+        'InnovaBot responderá con información verificada de la FISI y ' +
+        'citará sus fuentes como se muestra abajo.',
+        [{ titulo: 'Noticia de ejemplo — Portal FISI',
+           url: 'https://sistemas.unmsm.edu.pe/site/index.php' }]
+      );
+    }, 1100);
+  });
+
+  function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-user';
+    div.textContent = text;
+    thread.appendChild(div);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function addBotMsg(text, citas) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-bot';
+    div.textContent = text;
+    if (citas && citas.length) {
+      const c = document.createElement('div');
+      c.className = 'citas';
+      c.innerHTML = '<strong>Fuentes:</strong>';
+      citas.forEach(f => {
+        const a = document.createElement('a');
+        a.href = f.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = f.titulo;
+        c.appendChild(a);
+      });
+      div.appendChild(c);
+    }
+    thread.appendChild(div);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function addTypingIndicator() {
+    const div = document.createElement('div');
+    div.className = 'msg msg-bot';
+    div.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+    thread.appendChild(div);
+    thread.scrollTop = thread.scrollHeight;
+    return div;
+  }
+</script>
+</body>
+</html>
