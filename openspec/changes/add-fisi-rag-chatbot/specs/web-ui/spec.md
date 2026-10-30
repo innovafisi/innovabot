@@ -75,3 +75,7 @@ El backend SHALL exponer un endpoint de chat que reciba la consulta del usuario 
 #### Scenario: Consulta bloqueada
 - **WHEN** la página envía una consulta que el guardián bloquea
 - **THEN** el endpoint devuelve el mensaje estándar de rechazo con el mismo formato de respuesta
+
+#### Scenario: Consulta con límite excedido
+- **WHEN** la página envía una consulta y el usuario excedió su límite de frecuencia
+- **THEN** el endpoint devuelve el mensaje estándar de límite en el mismo formato de respuesta, con el estado `limitada`

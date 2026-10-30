@@ -7,7 +7,7 @@ Los estudiantes y postulantes de la Facultad de Ingeniería de Sistemas e Inform
 ## What Changes
 
 - **Pipeline de ingesta de conocimiento**: scraper de noticias del portal FISI, descarga y extracción de texto de PDFs del portal (planes de estudio, reglamentos), FAQs curadas manualmente y contenido relevante del portal central UNMSM; con chunking, embeddings (sentence-transformers local) e indexación en RDS PostgreSQL con el plugin pgvector.
-- **Pipeline de respuesta RAG**: recuperación semántica en GeminiDB + generación con DeepSeek 1017 vía Huawei MaaS, con respuestas en español citando las fuentes.
+- **Pipeline de respuesta RAG**: recuperación semántica en PostgreSQL (pgvector) + generación con el LLM principal (DeepSeek `deepseek-v4.1-flash`) vía Huawei MaaS, con respuestas en español citando las fuentes.
 - **Guardián de entrada**: filtro regex + light LM que bloquea prompt injection, clasifica la consulta y decide si responder o derivar.
 - **Reescritura de consultas**: light LM que convierte preguntas coloquiales en consultas óptimas para retrieval.
 - **Validación de respuestas**: light LM que verifica que la respuesta de DeepSeek esté respaldada por los fragmentos recuperados (anti-alucinación) antes de enviarla.
@@ -22,7 +22,7 @@ Los estudiantes y postulantes de la Facultad de Ingeniería de Sistemas e Inform
 
 - `knowledge-ingestion`: Pipeline que recopila contenido del portal FISI (noticias), PDFs del portal, FAQs curadas y portal central UNMSM; lo procesa (chunking, embeddings) y lo indexa en PostgreSQL (pgvector) con metadata de fuente y fecha.
 - `prompt-injection-guard`: Defensa de entrada en dos capas (regex + light LM) que detecta y bloquea intentos de prompt injection, clasifica la consulta por tema/intención y decide si la consulta procede al pipeline RAG o se rechaza/deriva.
-- `rag-answering`: Pipeline de respuesta que reescribe la consulta (light LM), recupera fragmentos relevantes de PostgreSQL (pgvector), genera la respuesta con DeepSeek 1017, la valida contra los fragmentos recuperados (anti-alucinación) y la entrega con citas a las fuentes.
+- `rag-answering`: Pipeline de respuesta que reescribe la consulta (light LM), recupera fragmentos relevantes de PostgreSQL (pgvector), genera la respuesta con el LLM principal (DeepSeek), la valida contra los fragmentos recuperados (anti-alucinación) y la entrega con citas a las fuentes.
 - `usage-limits`: Límites de uso sin login: identificación anónima de usuarios (user ID de Telegram, session ID web), límites de frecuencia (5 consultas/minuto, 30/hora) y de longitud de consulta (500 caracteres).
 - `telegram-ui`: Interfaz de chat vía bot de Telegram (webhook), con los mismos flujos de respuesta que la web.
 - `web-ui`: Interfaz de chat web mobile-responsive publicada en Vercel, con diseño simple en azul (primario) y amarillo (acento).
@@ -34,6 +34,6 @@ Los estudiantes y postulantes de la Facultad de Ingeniería de Sistemas e Inform
 ## Impact
 
 - **Nuevo código**: monorepo con backend Python/FastAPI, pipeline de ingesta y frontend React + TypeScript + Tailwind CSS; backend contenerizado con Docker.
-- **Servicios externos**: Huawei Cloud ECS `ecs-innovabot` (4 vCPU / 8 GB RAM, EIP, región LA-Santiago, VPC `vpc-innova`), RDS PostgreSQL con pgvector (vector store), Huawei MaaS (DeepSeek 1017 como LLM principal), Ollama local en el ECS (light LM para guardián/clasificación/reescritura/validación), Vercel (hosting del frontend), Telegram Bot API (bot creado con BotFather) y DNS gratuito + Let's Encrypt vía Caddy (TLS del backend).
+- **Servicios externos**: Huawei Cloud ECS `ecs-innovabot` (4 vCPU / 8 GB RAM, EIP, región LA-Santiago, VPC `vpc-innova`), RDS PostgreSQL con pgvector (vector store), Huawei MaaS (DeepSeek `deepseek-v4.1-flash` como LLM principal, consumido mediante su endpoint compatible con OpenAI), Ollama local en el ECS (light LM para guardián/clasificación/reescritura/validación), Vercel (hosting del frontend), Telegram Bot API (bot creado con BotFather) y DNS gratuito + Let's Encrypt vía Caddy (TLS del backend).
 - **Fuentes de datos**: sistemas.unmsm.edu.pe (noticias y PDFs), unmsm.edu.pe, archivo de FAQs curadas mantenido por el equipo.
 - **Sin impacto en sistemas existentes**: proyecto greenfield.

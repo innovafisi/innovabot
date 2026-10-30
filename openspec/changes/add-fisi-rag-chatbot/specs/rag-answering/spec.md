@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Produce las respuestas del chatbot: reescribe la consulta con el light LM, recupera fragmentos relevantes de PostgreSQL (pgvector), genera la respuesta en español con DeepSeek 1017, la valida contra los fragmentos recuperados y la entrega con citas a las fuentes.
+Produce las respuestas del chatbot: reescribe la consulta con el light LM, recupera fragmentos relevantes de PostgreSQL (pgvector), genera la respuesta en español con el LLM principal, la valida contra los fragmentos recuperados y la entrega con citas a las fuentes.
 
 ## ADDED Requirements
 
@@ -28,8 +28,8 @@ El sistema SHALL recuperar de PostgreSQL (pgvector) los fragmentos más relevant
 - **WHEN** la respuesta está en un PDF fragmentado por secciones
 - **THEN** se recuperan las secciones relevantes del documento, no el documento completo
 
-### Requirement: Generación de respuesta con DeepSeek
-El sistema SHALL generar la respuesta con DeepSeek 1017 usando exclusivamente los fragmentos recuperados como contexto, en español y con un tono institucional.
+### Requirement: Generación de respuesta con el LLM principal
+El sistema SHALL generar la respuesta con el LLM principal usando exclusivamente los fragmentos recuperados como contexto, en español y con un tono institucional.
 
 #### Scenario: Respuesta con contexto suficiente
 - **WHEN** los fragmentos recuperados contienen la información solicitada
@@ -65,7 +65,7 @@ El sistema SHALL responder con un mensaje estándar cuando la recuperación no e
 - **THEN** el usuario recibe un mensaje indicando que no se encontró información y una referencia al portal oficial
 
 ### Requirement: Registro estructurado por consulta
-El sistema SHALL registrar por cada consulta procesada un log estructurado con interfaz de origen, categoría, estado del resultado (ok, bloqueada, sin_resultados, limitada) y latencia, sin almacenar el contenido de la consulta ni datos personales del usuario.
+El sistema SHALL registrar por cada consulta recibida un log estructurado con interfaz de origen, categoría (cuando la consulta haya sido clasificada), estado del resultado (ok, bloqueada, sin_resultados, limitada) y latencia, sin almacenar el contenido de la consulta ni datos personales del usuario.
 
 #### Scenario: Consulta exitosa
 - **WHEN** una consulta completa el pipeline con respuesta entregada

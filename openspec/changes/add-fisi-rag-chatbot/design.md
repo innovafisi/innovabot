@@ -2,7 +2,7 @@
 
 ## Context
 
-Proyecto greenfield (repo `innovabot` vacío, sin código previo). Se construye un chatbot RAG sobre información de la FISI (UNMSM) con dos interfaces (Telegram y web) y servicios de Huawei Cloud. Decisiones de producto ya tomadas con el usuario: fuentes (noticias del portal FISI, PDFs del portal, FAQs curadas, portal central UNMSM), RDS PostgreSQL con pgvector como vector store, DeepSeek 1017 vía Huawei MaaS como LLM principal, un light LM con roles de guardián/clasificador/reescritor/validador, y frontend en React con TypeScript, ESLint, Vite y Tailwind CSS publicado en Vercel. MaaS no ofrece modelos pequeños, por lo que el light LM es un modelo local vía Ollama en el propio ECS (solo CPU + RAM, Ubuntu Server) y los embeddings se generan local con sentence-transformers. La arquitectura del backend es un monolito modular y la ingesta permanece como job batch bajo cron.
+Proyecto greenfield (repo `innovabot` vacío, sin código previo). Se construye un chatbot RAG sobre información de la FISI (UNMSM) con dos interfaces (Telegram y web) y servicios de Huawei Cloud. Decisiones de producto ya tomadas con el usuario: fuentes (noticias del portal FISI, PDFs del portal, FAQs curadas, portal central UNMSM), RDS PostgreSQL con pgvector como vector store, DeepSeek `deepseek-v4.1-flash` vía Huawei MaaS como LLM principal, un light LM con roles de guardián/clasificador/reescritor/validador, y frontend en React con TypeScript, ESLint, Vite y Tailwind CSS publicado en Vercel. MaaS no ofrece modelos pequeños, por lo que el light LM es un modelo local vía Ollama en el propio ECS (solo CPU + RAM, Ubuntu Server) y los embeddings se generan local con sentence-transformers. La arquitectura del backend es un monolito modular y la ingesta permanece como job batch bajo cron.
 
 Infraestructura ya provisionada en Huawei Cloud (región LA-Santiago): VPC `vpc-innova` (192.168.0.0/16), subnet `subnet-innova` (192.168.0.0/24, AZ Central), security group `sg-innova`, y ECS `ecs-innovabot` (4 vCPU / 8 GB RAM) con EIP.
 
@@ -43,7 +43,7 @@ innovabot/
 
 ```
 backend/app/
-├── core/         # settings, logging, clientes (MaaS, Ollama, GeminiDB)
+├── core/         # settings, logging, clientes (MaaS, Ollama, RDS)
 ├── ingestion/    # scraper noticias, pdfs, faqs, portal central, chunking, indexación
 ├── guard/        # regex + light LM (guardián, clasificación)
 ├── rag/          # reescritura, retrieval, generación, validación, citas
@@ -71,7 +71,7 @@ Mensaje → [Longitud ≤ 500 chars] → [Rate limit 5/min · 30/hora]
         → [Light LM: reescritura de consulta]
         → [Retrieval pgvector top-k]
         → (sin resultados → mensaje estándar)
-        → [DeepSeek 1017: generación con contexto]
+        → [LLM principal: generación con contexto]
         → [Light LM: validación anti-alucinación]
         → Respuesta + citas
 ```
@@ -117,7 +117,7 @@ Mensaje → [Longitud ≤ 500 chars] → [Rate limit 5/min · 30/hora]
 
 ### Modelos (Huawei MaaS + Ollama local)
 
-- **LLM principal**: DeepSeek 1017 vía MaaS (generación con contexto RAG, temperatura baja).
+- **LLM principal**: `deepseek-v4.1-flash` vía MaaS (generación con contexto RAG, temperatura baja). MaaS expone un **endpoint compatible con la API de OpenAI**: se consume con el SDK `openai` de Python apuntando su `base_url` al endpoint de MaaS y autenticando con la API key de MaaS. Sin SDK propietario, y el nombre del modelo queda como variable de entorno (`MAIN_LLM_MODEL`) — cambiar de modelo no toca código.
 - **Light LM**: modelo local vía Ollama en el mismo ECS (MaaS no ofrece modelos pequeños). Sin GPU, la elección prioriza calidad en CPU y consumo de RAM:
   - **Recomendado**: `qwen2.5:3b-instruct-q4_K_M` (~2 GB en disco, ~3–4 GB RAM en ejecución). Buen español, buen seguimiento de instrucciones y JSON fiable — clave para la salida estructurada del guardián. En 4 vCPU genera ~10–20 tok/s: suficiente para los prompts cortos de guard/validación.
   - **Plan B** si el ECS queda justo de RAM: `llama3.2:1b` (~1.3 GB, ~2 GB RAM), más rápido pero más débil validando.
@@ -152,7 +152,7 @@ Infraestructura ya creada: VPC `vpc-innova` (192.168.0.0/16), subnet `subnet-inn
 - **Frontend**: deploy en Vercel desde el repo (carpeta `frontend/`), con la URL del backend como variable de entorno.
 - **Despliegue de cambios del backend**: manual por SSH — `git pull` (o `docker pull` de la imagen) y `docker compose up -d` en el ECS; procedimiento documentado en `backend/README.md`. CI/CD automatizado (GitHub Actions + SWR) queda como mejora futura.
 - Sizing validado: 4 vCPU / 8 GB RAM alcanza para FastAPI + Ollama `qwen2.5:3b` + sentence-transformers durante la ingesta (el modelo de embeddings ~1 GB de RAM se carga solo en el proceso de ingesta).
-- Configuración por variables de entorno: credenciales MaaS, conexión GeminiDB, token del bot de Telegram, secret del webhook.
+- Configuración por variables de entorno: credenciales MaaS (API key + endpoint + modelo), conexión RDS, token del bot de Telegram, secret del webhook.
 - Telegram: webhook registrado vía `setWebhook` apuntando a `https://<dominio>/telegram/webhook/<token-secreto>`; requiere dominio + TLS (nginx como reverse proxy en el mismo compose o certificado en el balanceador).
 
 ## Risks / Trade-offs

@@ -6,8 +6,8 @@ Aplica límites de uso al chatbot sin requerir login: identifica a cada usuario 
 
 ## ADDED Requirements
 
-### Requirement: Identificación anónima del usuario
-El sistema SHALL identificar a cada usuario de forma anónima para aplicar los límites: el user ID nativo de Telegram en el bot, y una session ID generada por la web en la primera carga (persistida en localStorage y enviada con cada consulta) en la interfaz web.
+### Requirement: Identificación del usuario sin login
+El sistema SHALL identificar a cada usuario sin requerir login para aplicar los límites: el user ID nativo de Telegram en el bot, y una session ID anónima generada por la web en la primera carga (persistida en localStorage y enviada con cada consulta) en la interfaz web.
 
 #### Scenario: Primera visita a la web
 - **WHEN** un usuario carga la página web por primera vez
@@ -34,7 +34,7 @@ El sistema SHALL limitar cada usuario a un máximo de 5 consultas por minuto y 3
 
 #### Scenario: Uso normal dentro de límites
 - **WHEN** un usuario envía consultas respetando ambos límites
-- **THEN** todas se procesan con normalidad por el pipeline RAG
+- **THEN** ninguna es rechazada por los límites de frecuencia y todas continúan hacia el pipeline de respuesta
 
 ### Requirement: Límite de longitud de consulta
 El sistema SHALL rechazar consultas de más de 500 caracteres con un mensaje claro pidiendo acortar la consulta, sin truncarlas ni procesarlas.
