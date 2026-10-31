@@ -56,6 +56,11 @@ def test_indexar_y_recuperar_semanticamente_con_filtro_de_metadata() -> None:
     )
     almacen = AlmacenVectorial(database_url=TEST_DATABASE_URL)
     almacen.crear_tabla()
+    # Aislamiento: otros tests de integración pueden dejar filas (el fixture
+    # de retrieval trunca al inicio pero no al final).
+    with psycopg.connect(TEST_DATABASE_URL) as conn, conn.cursor() as cur:
+        cur.execute("TRUNCATE fragmentos")
+        conn.commit()
 
     fragmentos = [
         _fragmento(

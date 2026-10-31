@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Ollama: light LM local (guardián, clasificación, reescritura, validación).
     ollama_base_url: str = "http://localhost:11434"
     light_llm_model: str = "qwen2.5:3b-instruct-q4_K_M"
+    # Threads de inferencia. Sin valor, Ollama auto-detecta (correcto en el ECS
+    # de 4 vCPU uniformes). En CPUs híbridos de desarrollo (P+E+LPE cores,
+    # ej. Intel Core Ultra) el auto-detect patina: los threads caen en cores de
+    # baja potencia y cada token espera al más lento (~0.2 tok/s vs ~15).
+    # Con num_thread = núm. de P-cores se recupera la velocidad normal.
+    ollama_num_threads: int | None = None
 
     # RDS PostgreSQL con pgvector (almacén vectorial).
     database_url: str

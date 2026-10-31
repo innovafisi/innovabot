@@ -3,15 +3,14 @@
 > **Documento vivo**: memoria operativa del proyecto. Convención de actualización en la §10.
 > Toda la planificación formal vive en OpenSpec (`openspec/`); esta bitácora registra el *cómo llegamos ahí*.
 
-## Estado actual (2026-10-30, cierre de sesión 1)
+## Estado actual (2026-10-31, cierre de sesión 2)
 
-- Planificación **completa, validada y revisada**: cambio OpenSpec `add-fisi-rag-chatbot` con proposal, 6 specs de capabilities, design sin preguntas abiertas y **41 tareas** en 7 grupos. Revisión cruzada de specs: 4 conflictos detectados y corregidos (§7).
-- Infraestructura Huawei Cloud **provisionada y verificada** (ECS, RDS con pgvector, red y security groups).
-- ECS con Ubuntu Server **listo para el grupo 7**: actualizado, Docker instalado, swap de 4 GB, SSH endurecido, conectividad al RDS verificada.
-- DNS `innovabot.duckdns.org` **apuntando a la EIP** y verificado.
-- Prototipo de UI **aprobado** (`index-lima.html`, arte de la cultura Lima).
-- Repo auditado para publicarse: sin secretos ni IDs; gitleaks planificado (tarea 1.6).
-- **Siguiente paso**: `/opsx:apply` (grupos 1–6 en local; grupo 7 en el ECS esperando indicaciones del equipo).
+- **Implementación local completa**: grupos 1–6 del cambio `add-fisi-rag-chatbot` (34/41 tareas) — backend FastAPI, ingesta, guardián, pipeline RAG, API web, SPA React y bot de Telegram, con **110/110 tests en verde** (unit + integración).
+- Planificación completa, validada y revisada (4 conflictos de specs corregidos en S1, §7).
+- Infraestructura Huawei Cloud **provisionada y verificada** (ECS, RDS con pgvector, red y security groups); ECS listo para desplegar.
+- DNS `innovabot.duckdns.org` apuntando a la EIP; entorno local con Docker, Ollama + `qwen2.5:3b` y pgvector de prueba operativos.
+- gitleaks activo (pre-commit + config versionada); `backend/.env` con credenciales reales verificado **fuera** del repo (gitignored, no trackeado).
+- **Siguiente paso**: grupo 7 (despliegue en el ECS + Vercel), **esperando indicaciones del equipo**. Luego, commit de la implementación y `/opsx:archive`.
 
 ## 1. El proyecto en una mirada
 
@@ -167,11 +166,24 @@ Revisión cruzada de los 6 specs contra design y tasks. Hallazgos corregidos:
 
 Verificado **sin** conflictos: orden de chequeos (longitud → rate limit → regex → light LM), reparto del light LM entre capabilities (una llamada combinada según design), doble registro (auditoría del guardián vs métricas por consulta), prioridad de FAQs entre ingesta y retrieval, casos "contexto insuficiente" vs "sin resultados", estados del formato de respuesta, y alcance de Telegram a chats privados.
 
+### 7.3 Hallazgos de implementación (S2)
+
+Bugs reales que los tests de integración y la verificación de tareas cazaron durante el apply (grupos 1–6):
+
+| # | Hallazgo | Dónde | Fix |
+|---|---|---|---|
+| 1 | psycopg adapta listas Python a `double precision[]`, pero el operador `<=>` de pgvector exige tipo `vector` — la búsqueda semántica fallaba con `UndefinedFunction` | `core/clientes.py` `buscar()` | Embedding en formato texto pgvector (`json.dumps`) + cast explícito `::vector` |
+| 2 | En Linux, PyPI sirve torch **CUDA** por defecto: el build de Docker descargaba ~4 GB de paquetes `nvidia-*` para una GPU inexistente (proyecto CPU-only por diseño) | `docker/Dockerfile.backend` | `pip install torch --index-url .../whl/cpu` antes del resto: build de ~1h a ~1min |
+| 3 | En CPUs híbridos de desarrollo (Intel Core Ultra: P+E+LPE cores), el auto-detect de threads de Ollama patina: generación a **0.17 tok/s** (5.9 s/token) vs ~15 tok/s esperados — cada token espera al thread que cayó en un core de baja potencia | `core/clientes.py` + settings | `OLLAMA_NUM_THREADS` opcional (6 = P-cores) en la petición; fijado en compose de desarrollo y conftest; sin definir en el ECS (vCPUs uniformes) |
+| 4 | Tests de integración sin aislamiento: el test de retrieval dejaba filas y el de indexación asumía la tabla limpia | `tests/integration/test_indexar_pgvector.py` | TRUNCATE defensivo al inicio, como ya hacía el fixture de retrieval |
+
+Lección transversal: **los tests de integración contra infraestructura real (pgvector, Ollama) cazaron 2 de los 4 bugs** que los unit tests con mocks no podían ver.
+
 ## 8. Seguridad del repo público
 
 - **Auditoría pre-publicación**: cero UUIDs de Huawei Cloud en archivos (solo nombres de recursos), cero credenciales/tokens/IPs públicas. Nombres de recursos y CIDRs privados se mantienen por decisión del equipo (bajo riesgo: inaccesibles sin credenciales IAM).
 - **`.gitignore`** ampliado: `.env*`, `*.pem`, `*.key`, `secrets/`, caches de Python/Node.
-- **Gitleaks** planificado: tarea 1.6 (pre-commit hook + verificación de que detecta un secreto de prueba), riesgo y política de rotación en `design.md`.
+- **Gitleaks** activo desde S2 (tarea 1.6 verificada): `.gitleaks.toml` + hook versionado en `.githooks/pre-commit` (mecanismo único; el equipo lo activa con `git config core.hooksPath .githooks`, una vez por clon). Detecta un secreto sintético de prueba; el repo commiteable escanea limpio. `backend/.env` (credenciales reales en disco local) NO está allowlisted a propósito: gitleaks lo señala en escaneos completos, lo cual es correcto — no llega al repo porque `.gitignore` lo excluye y el hook solo escanea lo staged.
 - **Regla fija** (`AGENTS.md` + `config.yaml`): credenciales solo por variables de entorno.
 - **Git**: los commits los maneja exclusivamente el equipo (la herramienta de desarrollo no ejecuta comandos git). Mensaje sugerido para el commit inicial: `docs: add OpenSpec planning for FISI RAG chatbot`.
 
@@ -180,6 +192,7 @@ Verificado **sin** conflictos: orden de chequeos (longitud → rate limit → re
 | Fecha | Sesión | Hitos |
 |---|---|---|
 | 2026-10-30 | **S1 — Planificación y entorno** | Propuesta OpenSpec completa (16 decisiones, 6 specs, 41 tareas) · Infra Huawei provisionada (ECS, RDS+pgvector, red) · Setup ECS (Docker, swap, SSH) · DuckDNS configurado · Prototipo Lima aprobado · Auditoría de seguridad del repo · AGENTS.md, KISS, gitleaks · Cambio de modelo principal a `deepseek-v4.1-flash` (endpoint OpenAI de MaaS) · Revisión de conflictos entre specs (4 corregidos) |
+| 2026-10-31 | **S2 — Implementación local (grupos 1–6)** | 34/41 tareas: scaffolding + gitleaks activo · ingesta verificada contra pgvector real · guardián verificado contra Ollama real (JSON parseable en 8.8s) · pipeline RAG completo · SPA React verificada visualmente (Playwright, 390px, ambos temas) · Telegram · 110/110 tests en verde · 4 bugs cazados y corregidos (§7.3): cast pgvector, torch CUDA en Docker, threads en CPU híbrido, aislamiento de tests |
 
 ## 10. Convención para actualizar esta bitácora
 
@@ -192,7 +205,9 @@ Verificado **sin** conflictos: orden de chequeos (longitud → rate limit → re
 
 ## Pendientes
 
-- [ ] Commit inicial del repo (equipo) — mensaje sugerido en §8.
-- [ ] `/opsx:apply`: grupos 1–6 en local.
-- [ ] Grupo 7 (despliegue en ECS): **esperando indicaciones del equipo**.
+- [x] Commit inicial del repo (equipo) — mensaje sugerido en §8.
+- [x] `/opsx:apply`: grupos 1–6 en local (S2).
+- [ ] Commit de la implementación (equipo) — gitleaks ya activo como pre-commit.
+- [ ] Grupo 7 (despliegue en ECS + Vercel): **esperando indicaciones del equipo**.
 - [ ] Tarea 7.4: crear tablas en `rag_fisi` e índice HNSW en la primera ingesta.
+- [ ] `/opsx:archive` tras completar y revisar el grupo 7.

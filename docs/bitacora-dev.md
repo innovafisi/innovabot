@@ -4,11 +4,13 @@
 > Sigue la misma estructura que `docs/bitacora.md` (la memoria de planificación/infra); esta bitácora registra el *cómo se implementó*.
 > Convención de actualización en la §10. La fuente de verdad de las tareas es `openspec/changes/add-fisi-rag-chatbot/tasks.md` (41 tareas en 7 grupos).
 
-## Estado actual (2026-10-30, cierre de sesión D1)
+## Estado actual (2026-10-31, cierre de sesión D2)
 
-- **Grupos 1–6 implementados**: 27/41 tareas de `tasks.md` marcadas como completas y verificadas. Las 14 restantes son: 5 pendientes por entorno (Docker/pgvector/Ollama/DevTools), 1 por el primer commit del equipo (gitleaks) y las 7 del grupo 7 (despliegue ECS, esperando indicaciones).
-- Verificación final: backend `pytest` **106 passed, 4 skipped** (integración se salta sin entorno) + `ruff check .` limpio; frontend `npm run lint` 0 errores, `npm run test` 9/9, `npm run build` pasa; `ejemplo_contrato.py` y `uvicorn app.main:app` verificados en vivo (contrato exacto, 429 sin sesión, 403 webhook sin auth).
-- Token de BotFather y API key de MaaS ya en `backend/.env` (gitignored): el grupo 6 se completó; el registro real del webhook es tarea 7.5.
+- **Grupos 1–6 completos y verificados**: 34/41 tareas de `tasks.md`. Las 7 restantes son el grupo 7 (despliegue ECS + Vercel), **esperando indicaciones del equipo**.
+- Verificación final: backend `pytest` **110 passed** (unit + integración con pgvector y Ollama reales) + `ruff check .` limpio; frontend `npm run lint` 0 errores, `npm run test` 9/9, `npm run build` pasa; identidad visual verificada con capturas Playwright en viewport móvil 390px (ambos temas, ambas vistas, sin scroll horizontal, 0 errores de consola).
+- Entorno de desarrollo completo (D2): Docker Desktop, gitleaks 8.30.1, sentence-transformers, Ollama con `qwen2.5:3b-instruct-q4_K_M` y pgvector de prueba — comandos en §3.
+- 4 bugs reales cazados por la verificación de D2 (§7): cast pgvector, torch CUDA en Docker, threads en CPU híbrido, aislamiento de tests.
+- Hook de gitleaks: mecanismo único versionado en `.githooks/` — **el equipo debe ejecutar `git config core.hooksPath .githooks` una vez** antes del próximo commit.
 - Sin comandos git: los commits los maneja exclusivamente el equipo.
 
 ## 1. La implementación en una mirada
@@ -35,15 +37,90 @@ Monorepo `backend/` + `frontend/` + `docker/` creado desde cero según `design.m
 | 7 | Tailwind CSS v3 con `tailwind.config.js` y tokens en `theme.extend.colors` | Tailwind v4 (`@theme` en CSS) | `AGENTS.md` exige literalmente tokens en `theme.extend.colors`; v3.4 es estable y conocido por el equipo |
 | 8 | Boost de FAQs en retrieval por multiplicador de distancia (FAQ × factor < 1) | Re-ranking en Python o consulta separada | Es SQL común sobre pgvector, una sola consulta, cero código extra (KISS) |
 
-## 3. Entorno de desarrollo y verificaciones
+## 3. Entorno de desarrollo: herramientas, scripts y comandos
 
 | Herramienta | Estado | Impacto |
 |---|---|---|
 | Python 3.14.7 | ✓ (`requires-python >=3.12`) | venv en `backend/.venv` |
 | Node 24 / npm 11 | ✓ | scaffolding Vite + Tailwind + Vitest |
 | Red a portales FISI/UNMSM | ✓ | scraper verificable en vivo |
-| Docker | ✗ no instalado | Tareas 1.3 (`docker compose build`) y 1.5 (Ollama `/api/tags`) implementadas, verificación pendiente; tests de integración pgvector pendientes hasta haber BD de prueba |
-| gitleaks | ✗ no instalado (ver §6) | Se intenta descargar el binario para verificar la tarea 1.6 |
+| Docker Desktop | ✓ (instalado en D2 vía winget, engine 29.9.2) | Tareas 1.3 y 1.5 verificadas; contenedores de prueba pgvector + Ollama |
+| gitleaks | ✓ 8.30.1 (instalado en D2 vía winget) | Tarea 1.6 verificada; hook pre-commit |
+| sentence-transformers + torch | ✓ (extra `[ingest]` en el venv, D2) | Embeddings reales en tests de integración |
+
+### 3.1 Scripts y comandos del entorno (instalación, D2)
+
+Instalaciones (con permiso del equipo, de preferencia winget):
+
+```powershell
+# gitleaks (ojo: el ID es case-sensitive)
+winget install -e --id Gitleaks.Gitleaks --accept-source-agreements --accept-package-agreements --silent
+
+# Docker Desktop (WSL2 ya estaba habilitado; requiere arrancar la app tras instalar)
+winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+```
+
+Extra de ingesta en el venv (arrastra torch; en Windows PyPI sirve torch CPU ~200 MB):
+
+```powershell
+cd backend
+.venv/Scripts/pip.exe install ".[ingest]"
+```
+
+**Gotcha de Docker en shells nuevos**: al llamar a `docker` fuera de la app, falla con
+`docker-credential-desktop: executable file not found in %PATH%`. Fix: prependear el bin dir:
+
+```powershell
+$env:PATH = "C:\Program Files\Docker\Docker\resources\bin;$env:PATH"
+```
+
+### 3.2 Contenedores de prueba (pgvector + Ollama)
+
+```powershell
+# PostgreSQL 18 con pgvector para los tests de integración (tareas 2.6 y 4.1)
+docker run -d --name pgvector-test -e POSTGRES_PASSWORD=test -p 5432:5432 pgvector/pgvector:pg18
+docker exec pgvector-test pg_isready -U postgres   # esperarlo antes de correr los tests
+
+# Ollama + light LM (tarea 1.5): el script oficial del repo hace up + pull + verificación
+bash scripts/descargar_modelo.sh   # termina con "OK: el modelo aparece en /api/tags"
+```
+
+### 3.3 Comandos de verificación
+
+```powershell
+# Backend: unit + integración (integración requiere TEST_DATABASE_URL; sin él se salta limpio)
+cd backend
+$env:TEST_DATABASE_URL = "postgresql://postgres:test@localhost:5432/postgres"
+.venv/Scripts/python.exe -m pytest tests -q          # 110 passed
+.venv/Scripts/python.exe -m ruff check .
+
+# Frontend
+cd frontend
+npm run lint ; npm run test -- --run ; npm run build
+
+# Docker: build de las imágenes (tarea 1.3)
+docker compose -f docker/docker-compose.yml build
+
+# gitleaks: escaneo manual del árbol (sin git)
+gitleaks detect --source . --no-git --redact
+```
+
+### 3.4 Verificación visual de la UI (tarea 5.3, Playwright)
+
+Playwright no está en el proyecto (no contamina `package.json`): se instala en un dir temporal
+y un script toma las capturas en viewport móvil 390px, alterna el tema en ambas vistas y
+comprueba scroll horizontal + errores de consola:
+
+```powershell
+$dir = "$env:TEMP\innovabot-visual"; New-Item -ItemType Directory -Force $dir | Out-Null
+cd $dir; npm init -y | Out-Null; npm install playwright; npx playwright install chromium
+# script verificar.mjs: nav → screenshots (landing/chat × claro/oscuro) → toggle → scrollWidth check
+node verificar.mjs http://localhost:5173   # con `npm run dev` corriendo en frontend/
+```
+
+Resultado D2: `SCROLL_CHAT/LANDING {"scrollWidth":390,"innerWidth":390}`, `CONSOLE_ERRORS []`,
+4 capturas revisadas — tokens correctos en ambos temas, logo de huaca visible sobre blanco fijo.
 
 ## 4. Registro por grupos de tareas
 
@@ -51,10 +128,10 @@ Monorepo `backend/` + `frontend/` + `docker/` creado desde cero según `design.m
 
 - [x] 1.1 `backend/` con `pyproject.toml`, paquete `app/`, ruff/pytest. Verificado: `pytest` en verde con test dummy.
 - [x] 1.2 `frontend/` con Vite (React + TS), ESLint y Tailwind v3. Verificado: `npm run lint` y `npm run build` pasan. Nota: la plantilla actual de Vite trae oxlint y TypeScript 7; se sustituyó oxlint por ESLint (requisito de la tarea) y se fijó TypeScript 5.9 (typescript-eslint aún no soporta TS 7).
-- [ ] 1.3 `docker/` (Dockerfile.backend, Dockerfile.frontend, docker-compose.yml con app+ollama+ingest). **Verificación pendiente**: `docker compose build` requiere Docker (no instalado en la máquina de desarrollo).
+- [x] 1.3 `docker/` (Dockerfile.backend, Dockerfile.frontend, docker-compose.yml con app+ollama+ingest). **Verificado en D2**: `docker compose build` completo tras corregir el Dockerfile (torch CPU-first, ver §7.3) — build de ~1h a ~1min.
 - [x] 1.4 Settings tipado por env vars (`app/core/settings.py` + `backend/.env.example`). Verificado: test que la app falla con mensaje claro en español listando las variables que faltan.
-- [ ] 1.5 Ollama en compose de desarrollo (`OLLAMA_NUM_PARALLEL=1`, volumen persistente, 11434 solo en 127.0.0.1) + `scripts/descargar_modelo.sh`. **Verificación pendiente**: `GET /api/tags` requiere Docker/Ollama.
-- [ ] 1.6 gitleaks: `.gitleaks.toml` (extiende el ruleset por defecto) + hook `.githooks/pre-commit` (instalable con `git config core.hooksPath .githooks`). Verificado con el binario 8.30.1: detecta un secreto falso de entropía alta (exit 1) y el escaneo del contenido del repo pasa limpio (exit 0). **Pendiente**: la pasada a nivel de commit la ejecuta el equipo con su primer commit (la herramienta de desarrollo no tiene permisos de git). Nota: gitleaks detectó que `backend/.env` ya contiene credenciales reales — correcto, está en `.gitignore` y el hook solo escanea lo staged.
+- [x] 1.5 Ollama en compose de desarrollo (`OLLAMA_NUM_PARALLEL=1`, volumen persistente, 11434 solo en 127.0.0.1) + `scripts/descargar_modelo.sh`. **Verificado en D2**: script ejecutado (pull de 1.9 GB) — termina con "OK: el modelo aparece en /api/tags".
+- [x] 1.6 gitleaks: `.gitleaks.toml` (extiende el ruleset por defecto, allowlist de tests y `.venv`) + hook `.githooks/pre-commit` (instalable con `git config core.hooksPath .githooks`). **Verificado en D2** con el binario 8.30.1 (winget): detecta un secreto sintético realista (exit 1; ojo: las claves de documentación tipo `AKIAIOSFODNN7EXAMPLE` están en los stopwords por defecto y NO cuentan como prueba) y el contenido commiteable del repo escanea limpio (exit 0). `backend/.env` (credenciales reales en disco) NO está allowlisted a propósito: gitleaks lo señala en escaneos completos — correcto; no llega al repo (.gitignore + hook staged-only). **D2 concilió el mecanismo de hook al único versionado `.githooks/`** (ADR §2.6): se eliminaron un hook directo en `.git/hooks/` y un `.pre-commit-config.yaml` duplicados. **Pendiente del equipo**: `git config core.hooksPath .githooks` (una vez por clon).
 
 ### Grupo 2 — Ingesta de conocimiento (subagente)
 
@@ -63,20 +140,20 @@ Monorepo `backend/` + `frontend/` + `docker/` creado desde cero según `design.m
 - [x] 2.3 FAQs curadas (`faqs.py`): parser `## ¿Pregunta?` → fragmento `tipo=faq`; `data/faqs.md` con 8 Q&As reales. Verificado: cada Q&A genera fragmento; re-ejecutar no duplica (mismo hash).
 - [x] 2.4 Portal central UNMSM (`portal.py`): solo se ingieren las secciones del YAML (`data/secciones_portal.yml`, 3 secciones verificadas con contenido real). Verificado con fixture.
 - [x] 2.5 Deduplicación (`chunking.py`): SHA-256 del contenido normalizado como id; versión actualizada marca obsoleta la anterior por URL. Verificado: re-ingesta sin cambios no inserta; documento actualizado reemplaza.
-- [ ] 2.6 Embeddings + indexación pgvector (`indexar.py`): implementado (upsert, `marcar_obsoletos`, metadata obligatoria, validación de metadata incompleta). **Verificación pendiente**: test de integración escrito (`tests/integration/test_indexar_pgvector.py`) pero sin Docker/RDS ni extra `[ingest]` en esta máquina.
+- [x] 2.6 Embeddings + indexación pgvector (`indexar.py`): implementado (upsert, `marcar_obsoletos`, metadata obligatoria, validación de metadata incompleta). **Verificado en D2** contra `pgvector/pgvector:pg18` real con embeddings e5 reales: fragmento indexado recuperable por búsqueda semántica y filtrable por metadata. El test cazó el bug del cast `::vector` (§7.3).
 - [x] 2.7 `backend/README.md`: ejecución de la ingesta, variables, formato YAML/Markdown, tests de integración. Verificado: los comandos documentados corren tal cual (componentes verificados por separado; la ingesta completa real es tarea 7.4 en el ECS).
 - Hallazgos del scraper real: el portal FISI **no publica fecha de publicación** en el HTML (la fecha queda None salvo marcado estructurado o texto explícito "publicado el…"); el feed RSS del portal devuelve error; unmsm.edu.pe también tiene problemas de certificado para clientes no-Windows.
 
 ### Grupo 3 — Guardián de entrada
 
 - [x] 3.1 `app/guard/regex_guard.py`: 8 patrones anclaados (override ES/EN, revelar system prompt, jailbreak) con motivo descriptivo para auditoría. Verificado: 15 inyecciones canónicas bloqueadas, 7 consultas legítimas con palabras sospechosas aisladas pasan.
-- [ ] 3.2 `app/guard/light_lm_guard.py`: llamada combinada guard+clasificación+reescritura (JSON `{safe, category, rewritten_query}`, temperatura 0, `format: json` de Ollama). **Parte unitaria verificada** con mock (instrucción encubierta → insegura; académica → segura+clasificada; salida incompleta → conservadora). **Pendiente**: prueba de integración contra Ollama real (`tests/integration/test_light_lm_real.py`, se salta sin Ollama).
+- [x] 3.2 `app/guard/light_lm_guard.py`: llamada combinada guard+clasificación+reescritura (JSON `{safe, category, rewritten_query}`, temperatura 0, `format: json` de Ollama). **Parte unitaria verificada** con mock (instrucción encubierta → insegura; académica → segura+clasificada; salida incompleta → conservadora). **Verificado en D2 contra Ollama real**: JSON parseable con las tres claves en 8.8s — tras el fix de threads en CPU híbrido (§7.3), que bajó la generación de 0.17 tok/s a velocidad normal.
 - [x] 3.3 `app/guard/mensajes.py` + derivación temprana en el orquestador. Verificado: consulta bloqueada no genera llamadas al LLM principal ni al almacén vectorial; fuera de alcance responde temas sin tocar retrieval.
 - [x] 3.4 Registro de bloqueos (`app/core/logs.py::registrar_bloqueo`). Verificado: cada bloqueo deja exactamente un registro JSON con motivo, timestamp e interfaz.
 
 ### Grupo 4 — Pipeline de respuesta RAG
 
-- [ ] 4.1 `app/rag/retrieval.py`: top-k con boost de FAQs (×0.8 sobre distancia coseno) y umbral de similitud mínima. **Pendiente**: test de integración con pgvector (`tests/integration/test_retrieval_pgvector.py`, requiere `TEST_DATABASE_URL` + extra `[ingest]`).
+- [x] 4.1 `app/rag/retrieval.py`: top-k con boost de FAQs (×0.8 sobre distancia coseno) y umbral de similitud mínima. **Verificado en D2** contra pgvector real: la FAQ correspondiente se recupera con prioridad y la metadata es filtrable por SQL.
 - [x] 4.2 `app/rag/generacion.py`: system prompt restrictivo (solo fragmentos, español, sin inventar, sin revelar instrucciones), temperatura baja en `ClienteLLMPrincipal`. Verificado con mock: el prompt incluye exclusivamente los fragmentos + instrucción de citar fuentes.
 - [x] 4.3 `app/rag/validacion.py` + política de reintento en el orquestador. Verificado con mocks: respuesta no respaldada no se entrega tal cual (1 regeneración con feedback; a la segunda falla, mensaje estándar); respaldada se entrega sin cambios.
 - [x] 4.4 Ensamblado de citas deduplicadas por URL + mensaje estándar sin resultados. Verificado: test end-to-end del pipeline con mocks (estados ok/bloqueada/sin_resultados, citas correctas).
@@ -88,7 +165,7 @@ Monorepo `backend/` + `frontend/` + `docker/` creado desde cero según `design.m
 
 - [x] 5.1 `app/interfaces/api.py` + `app/main.py`: `POST /api/chat` con validación de entrada, formato `{reply, citas, estado}`, 429 con estado `limitada` (sin session ID o límite excedido), CORS por `CORS_ORIGINS`, identidad `web:<X-Session-ID>`. Verificado con 8 tests de API (formato completo, bloqueada, 429×2, 422, CORS permitido/ajeno).
 - [x] 5.2 SPA React (subagente): dos vistas fiel al prototipo `index-lima.html`, hilo con typing, citas, modo prototipo sin backend. Verificado: `npm run lint` 0 errores, `npm run build` pasa, prueba manual documentada en `frontend/README.md`.
-- [ ] 5.3 Identidad visual + tema claro/oscuro + responsive (subagente): **implementada** (tokens Tailwind, banda/huaca/greca Lima, avatar sobre blanco fijo, toggle persistente, máx 720px). **Verificación pendiente**: revisión en viewport móvil con DevTools (procedimiento documentado en `frontend/README.md` para el equipo).
+- [x] 5.3 Identidad visual + tema claro/oscuro + responsive (subagente): **implementada** (tokens Tailwind, banda/huaca/greca Lima, avatar sobre blanco fijo, toggle persistente, máx 720px). **Verificada en D2** con Playwright en viewport móvil 390px (§3.4): 4 capturas revisadas (landing/chat × claro/oscuro), colores y motivos según tokens en ambos temas, logo visible en claro y oscuro, toggle alterna ambas vistas, sin scroll horizontal, 0 errores de consola.
 - [x] 5.4 Estados de la UI (bloqueada, limitada 200/429, sin_resultados, fallo de red) con mensajes amigables. Verificado: tests de componentes renderizan cada estado.
 - [x] 5.5 Session ID anónima (UUID v4 en localStorage, header `X-Session-ID`) + contador N/500 con aviso al ≥90%. Verificado: tests de componentes (persistencia entre remount, aviso a 450/500).
 - Desviaciones menores documentadas por el subagente: neutrales del prototipo mapeados a la paleta slate de Tailwind (casi idénticos); token añadido `terracota.claro` para el crédito en oscuro; botón de envío deshabilitado mientras llega la respuesta (el spec permite ambos).
@@ -139,18 +216,28 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 |---|---|---|---|
 | 1 | La primera ejecución real del scraper falló con `CERTIFICATE_VERIFY_FAILED` contra sistemas.unmsm.edu.pe | El portal FISI sirve una **cadena TLS incompleta**: envía un intermedio Sectigo equivocado y el correcto solo se resuelve por AIA (Windows lo hace automáticamente; Linux/Python no) | Se incluye el intermedio público correcto en el repo (`app/ingestion/intermedio_sectigo.crt`, descargado del AIA) y el cliente HTTP construye el contexto SSL con certifi + ese CRT. Verificación TLS estricta, nunca deshabilitada. Necesario también en el ECS Linux. Nota: se renombró de `.pem` a `.crt` porque `.gitignore` excluye `*.pem` (regla para claves privadas) y el archivo público debía poder commitearse |
 | 2 | Una primera versión del scraper cogía cualquier fecha del cuerpo de la noticia como fecha de publicación | El portal no publica fecha estructurada; textos como "hasta el 01 de noviembre" daban metadata falsa | La fecha solo se acepta de marcado estructurado (`time[datetime]`, itemprop) o de texto que dice explícitamente "publicado el DD de mes de YYYY"; si no, queda None (es opcional) |
+| 3 | El build de Docker tardaba ~1h y fallaba; `pip install ".[ingest]"` descargaba ~4 GB de paquetes `nvidia-*` | En Linux, PyPI sirve **torch CUDA** por defecto — y el proyecto es CPU-only por diseño (ECS sin GPU) | `Dockerfile.backend`: `pip install torch --index-url https://download.pytorch.org/whl/cpu` ANTES del resto → pip lo ve satisfecho y salta los nvidia. Build: ~1h → ~1min |
+| 4 | La prueba contra Ollama real (3.2) expiraba a los 60s incluso con la CPU quieta: generación a **0.17 tok/s** (5.9 s/token) en un Core Ultra 7 255H | CPU híbrido (P+E+LPE cores): el auto-detect de threads de Ollama reparte threads en cores de baja potencia y cada token (barrera de sincronización) espera al más lento | `OLLAMA_NUM_THREADS` opcional en settings + `num_thread` en la petición del `ClienteLightLM`; fijado a 6 (P-cores) en compose de desarrollo y conftest. Medido: 2m27s → 4.7s (~30x). En el ECS (vCPUs uniformes) se deja sin definir |
+| 5 | La búsqueda semántica fallaba con `operator does not exist: vector <=> double precision[]` | psycopg adapta listas Python a arrays de Postgres; el operador `<=>` de pgvector exige tipo `vector` (el INSERT funcionaba por cast de asignación, la expresión no) | `AlmacenVectorial.buscar()`: embedding serializado con `json.dumps` (formato texto de pgvector) + cast explícito `::vector`. Cazado por el test de integración 2.6 |
+| 6 | `docker` fallaba en shells nuevos con `docker-credential-desktop: executable file not found in %PATH%` | El CLI fuera de la app de Docker Desktop no tiene el bin dir en PATH | Prependear `C:\Program Files\Docker\Docker\resources\bin` al PATH de la sesión (§3.1) |
+| 7 | El test de indexación fallaba por filas ajenas ("FAQ matrícula" del test de retrieval) | Tests de integración sin aislamiento: el fixture de retrieval trunca al inicio pero no al final | TRUNCATE defensivo al inicio del test de indexación, igual que el fixture |
 
 ## 8. Lecciones
 
 - **`*.pem` en `.gitignore` pilla también certificados PÚBLICOS**: usar extensión `.crt`/`.cer` para material público de CA y reservar `.pem` para claves.
 - **"Connection refused" vs timeout** (ya documentado en bitacora §4.6) y ahora **cadena TLS incompleta**: los portales UNMSM tienen rarezas de infraestructura; el scraper debe registrar fallos por página sin detenerse — el spec ya lo exigía y sirvió de red de seguridad real.
 - Los subagentes en paralelo funcionan bien con alcances disjuntos (ingesta vs frontend vs pipeline central) y `tasks.md` como tablero compartido de checkboxes; el único roce fue ruff señalando archivos ajenos a mitad de ejecución, que cada dueño corrigió en su alcance.
+- **En Linux, torch por defecto es CUDA**: toda imagen Docker CPU-only debe instalar torch del índice CPU de PyTorch antes que cualquier cosa que lo dependa (§7.3).
+- **CPUs híbridos rompen el auto-detect de threads de Ollama**: si la generación es decenas de veces más lenta que el prompt eval, limitar `num_thread` a los P-cores (§7.4).
+- **Los tests de integración contra infraestructura real cazan bugs que los mocks no ven**: 2 de los 4 bugs de D2 (cast pgvector, threads) solo aparecieron contra pgvector y Ollama reales. El costo de levantar los contenedores de prueba (§3.2) se paga solo.
+- **Las claves de documentación no sirven para probar gitleaks**: `AKIAIOSFODNN7EXAMPLE` y cadenas con "test"/"fake" están en los stopwords por defecto; la prueba de detección usa un secreto sintético realista.
 
 ## 9. Cronología de sesiones de desarrollo
 
 | Fecha | Sesión | Hitos |
 |---|---|---|
 | 2026-10-30 | **D1 — Implementación grupos 1–6** | Conciliación 39/40→41 tareas · scaffolding backend+frontend+docker+gitleaks · settings tipado · ingesta completa con scraper real (hallazgo TLS del portal FISI, §7) · guardián regex+light LM · pipeline RAG con orquestador único · API web + SPA React con arte Lima · bot de Telegram completo · 27/41 tareas verificadas (106 tests backend + 9 frontend en verde) · pendientes: verificaciones con Docker/pgvector/Ollama, DevTools 5.3, primer commit (gitleaks) y grupo 7 |
+| 2026-10-31 | **D2 — Verificación de entorno, cierre de grupos 1–6** | Entorno completo instalado (Docker Desktop, gitleaks, sentence-transformers vía winget/pip, §3) · 7 tareas verificadas: 1.3 build, 1.5 Ollama+modelo, 1.6 gitleaks, 2.6 pgvector, 3.2 Ollama real (8.8s), 4.1 retrieval, 5.3 visual Playwright 390px · 4 bugs cazados y corregidos (§7.3–7.6): torch CUDA en Docker, threads CPU híbrido, cast pgvector, aislamiento de tests · hook gitleaks conciliado a `.githooks/` único · guía de despliegue creada (`docs/guia-deploy.md`: ECS, Vercel, webhook, cron, rollback) · 34/41 tareas, 110/110 tests backend + 9 frontend en verde |
 
 ## 10. Convención para actualizar esta bitácora
 
@@ -162,9 +249,10 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 
 ## Pendientes
 
-- [ ] Verificar 1.3 y 1.5 con Docker (local con Docker Desktop o en el ECS).
-- [ ] Tests de integración pgvector (2.6, 4.1) con `TEST_DATABASE_URL` + extra `[ingest]` (instrucciones en `backend/README.md`).
-- [ ] Prueba de integración contra Ollama real (3.2) cuando exista entorno.
-- [ ] Revisión en viewport móvil con DevTools (5.3) — procedimiento en `frontend/README.md`.
-- [ ] Primer commit del equipo con el hook de gitleaks activo (`git config core.hooksPath .githooks`) → cierra 1.6.
-- [ ] Grupo 7 (despliegue ECS): esperando indicaciones del equipo; el token de BotFather y la API key de MaaS ya están en `backend/.env`.
+- [x] Verificar 1.3 y 1.5 con Docker (D2, §3).
+- [x] Tests de integración pgvector (2.6, 4.1) con `TEST_DATABASE_URL` + extra `[ingest]` (D2, §3.3).
+- [x] Prueba de integración contra Ollama real (3.2) (D2, tras el fix de threads §7.4).
+- [x] Revisión en viewport móvil de la identidad visual (5.3) (D2, Playwright §3.4).
+- [ ] Commit de la implementación (equipo) — **antes**: `git config core.hooksPath .githooks` (una vez por clon) para activar el hook de gitleaks versionado.
+- [ ] Grupo 7 (despliegue ECS + Vercel): esperando indicaciones del equipo; el token de BotFather y la API key de MaaS ya están en `backend/.env`.
+- [ ] `/opsx:archive` tras completar y revisar el grupo 7.

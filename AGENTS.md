@@ -37,7 +37,7 @@ Los detalles completos están en `design.md` del cambio activo. Lo esencial:
 backend/     # Python/FastAPI (por crear — grupo 1 de tasks.md)
 frontend/    # React + TS + Vite + Tailwind (por crear)
 docker/      # Dockerfiles y docker-compose (por crear)
-docs/        # bitacora.md: memoria operativa del proyecto (convención de actualización dentro)
+docs/        # bitacora.md (planificación/infra), bitacora-dev.md (implementación), guia-deploy.md (despliegue ECS+Vercel)
 openspec/    # Specs y cambios OpenSpec — NO editar casualmente
 index-lima.html  # Prototipo de diseño aprobado (referencia para la SPA)
 index.html       # Prototipo previo sin arte Lima (referencia histórica)

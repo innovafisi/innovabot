@@ -1,9 +1,24 @@
-# Configuración de gitleaks para el repo público de InnovaBot (tarea 1.6).
-# Extiende el ruleset por defecto de gitleaks (claves de API, tokens, claves
-# privadas, etc.). Si gitleaks marca un hallazgo: rota la credencial ANTES de
-# seguir (regla de AGENTS.md).
+# Configuración de gitleaks para InnovaBot (repo público).
+# Reglas: las de serie de gitleaks (useDefault) — KISS: sin reglas custom
+# mientras no haya un falso positivo/negativo concreto que justifique una.
 
-title = "gitleaks de InnovaBot"
+title = "gitleaks — InnovaBot (repo público)"
 
 [extend]
 useDefault = true
+
+[allowlist]
+description = "Falsos positivos: tokens ficticios de tests y código de terceros"
+paths = [
+  # Los tests usan credenciales inventadas (conftest.py las documenta como dummy).
+  '''backend/tests/.*''',
+  # Librerías de terceros en el venv (vectores de test del paquete cryptography,
+  # constantes de openai/pypdfium2). El venv no se commitea (.gitignore).
+  '''backend/\.venv/.*''',
+]
+
+# NOTA: backend/.env NO está en el allowlist a propósito: contiene credenciales
+# reales en disco local. gitleaks lo señala en escaneos completos del directorio
+# (detect --no-git), lo cual es correcto y deseable. No llega al repo porque
+# .gitignore lo excluye y el hook pre-commit (protect --staged) solo escanea
+# lo staged — un archivo ignorado nunca pasa a staging.

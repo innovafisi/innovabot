@@ -29,19 +29,24 @@ class ClienteLightLM:
         settings = get_settings()
         self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self.modelo = modelo or settings.light_llm_model
+        self.num_threads = settings.ollama_num_threads
 
     def completar_json(self, sistema: str, prompt: str, timeout: float = 60.0) -> dict:
         """Una llamada al light LM con salida JSON garantizada por Ollama.
 
         Lanza ValueError si la respuesta no es JSON parseable.
         """
+        opciones: dict = {"temperature": 0}
+        if self.num_threads:
+            # CPUs híbridos de desarrollo: ver comentario en settings.py.
+            opciones["num_thread"] = self.num_threads
         peticion = {
             "model": self.modelo,
             "system": sistema,
             "prompt": prompt,
             "format": "json",
             "stream": False,
-            "options": {"temperature": 0},
+            "options": opciones,
         }
         with httpx.Client(timeout=timeout) as cliente:
             respuesta = cliente.post(f"{self.base_url}/api/generate", json=peticion)
@@ -196,20 +201,24 @@ class AlmacenVectorial:
 
         Devuelve (fragmento, similitud) ordenados por distancia con boost:
         un fragmento `tipo=faq` compite con su distancia × `boost_faq`.
+        El embedding viaja en formato texto de pgvector (`[a, b, …]`) con
+        cast explícito: psycopg adapta listas a `double precision[]`, y el
+        operador `<=>` solo existe para tipo `vector`.
         """
+        consulta = json.dumps(embedding)
         with self._conectar() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, contenido, tipo, url, titulo, fecha,
-                       1 - (embedding <=> %(q)s) AS similitud
+                       1 - (embedding <=> %(q)s::vector) AS similitud
                 FROM fragmentos
                 WHERE obsoleto = FALSE
                 ORDER BY (CASE WHEN tipo = 'faq'
-                               THEN (embedding <=> %(q)s) * %(boost)s
-                               ELSE (embedding <=> %(q)s) END)
+                               THEN (embedding <=> %(q)s::vector) * %(boost)s
+                               ELSE (embedding <=> %(q)s::vector) END)
                 LIMIT %(k)s
                 """,
-                {"q": embedding, "boost": boost_faq, "k": top_k},
+                {"q": consulta, "boost": boost_faq, "k": top_k},
             )
             filas = cur.fetchall()
         return [

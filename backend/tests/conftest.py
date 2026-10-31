@@ -20,6 +20,9 @@ DUMMY_ENV = {
     "RATE_LIMIT_PER_MINUTE": "5",
     "RATE_LIMIT_PER_HOUR": "30",
     "MAX_QUERY_CHARS": "500",
+    # Tests de integración contra Ollama real: en CPUs híbridos de desarrollo
+    # el auto-detect de threads patina (ver settings.ollama_num_threads).
+    "OLLAMA_NUM_THREADS": "6",
 }
 
 

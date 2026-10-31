@@ -8,6 +8,11 @@ WORKDIR /srv
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
 
+# torch CPU-first: en Linux, PyPI sirve por defecto la variante CUDA de torch
+# (~4 GB de paquetes nvidia-* para una GPU que no existe). Este proyecto es
+# CPU-only por diseño (ECS sin GPU), así que se instala torch desde el índice
+# CPU de PyTorch ANTES: pip lo ve satisfecho y salta los paquetes nvidia.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir ".[ingest]"
 
 # Sin puertos publicados: en producción solo Caddy expone 80/443 y proxya a app.
