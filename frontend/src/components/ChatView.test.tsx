@@ -124,6 +124,41 @@ describe('envío de la consulta', () => {
   })
 })
 
+describe('saneamiento de URLs de citas (tarea 7.1, OWASP LLM05)', () => {
+  it('muestra una cita con esquema javascript: como texto, sin enlace', async () => {
+    simularRespuesta({
+      reply: 'Respuesta con cita peligrosa.',
+      citas: [{ titulo: 'Fuente maliciosa', url: 'javascript:alert(1)' }],
+      estado: 'ok',
+    })
+    montarChat()
+    await enviar('¿Consulta?')
+    await waitFor(() => expect(screen.getByText('Fuente maliciosa')).toBeInTheDocument())
+
+    // El título se muestra, pero no como enlace clicable.
+    expect(screen.queryByRole('link')).toBeNull()
+    const titulo = screen.getByText('Fuente maliciosa')
+    expect(titulo.tagName).not.toBe('A')
+    expect(titulo).not.toHaveAttribute('href')
+  })
+
+  it('renderiza una cita con esquema https:// como enlace con href correcto', async () => {
+    simularRespuesta({
+      reply: 'Respuesta con cita segura.',
+      citas: [{ titulo: 'Fuente segura', url: 'https://fisi.example/segura' }],
+      estado: 'ok',
+    })
+    montarChat()
+    await enviar('¿Consulta?')
+    await waitFor(() => expect(screen.getByText('Fuente segura')).toBeInTheDocument())
+
+    const enlace = screen.getByRole('link', { name: 'Fuente segura' })
+    expect(enlace).toHaveAttribute('href', 'https://fisi.example/segura')
+    expect(enlace).toHaveAttribute('target', '_blank')
+    expect(enlace).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+})
+
 describe('contador de caracteres (tarea 5.5)', () => {
   it('muestra N/500 y avisa al acercarse al límite', () => {
     montarChat()

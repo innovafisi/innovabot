@@ -11,7 +11,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    env_file: backend/.env
+    env_file: ../backend/.env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
       # Máquinas de desarrollo con CPU híbrido (P+E+LPE): sin esto, el
@@ -25,7 +25,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    env_file: backend/.env
+    env_file: ../backend/.env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_NUM_THREADS: "6"

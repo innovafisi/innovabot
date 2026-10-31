@@ -1,7 +1,7 @@
 """App FastAPI de InnovaBot.
 
 Un solo servicio con los endpoints de la API web (/api/chat) y del webhook
-de Telegram (/telegram/webhook/{token}). CORS únicamente para el origen del
+de Telegram (/telegram/webhook). CORS únicamente para el origen del
 frontend en Vercel (CORS_ORIGINS); el backend NO sirve estáticos.
 """
 
@@ -11,8 +11,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.clientes import ClienteTelegram
+from app.core.limites import LimitesUso
 from app.core.settings import get_settings
 from app.interfaces.api import router as router_api
+from app.interfaces.telegram import RegistroUpdates
 from app.interfaces.telegram import router as router_telegram
 
 
@@ -34,6 +36,8 @@ def crear_app(pipeline: Any = None, cliente_telegram: Any = None) -> FastAPI:
         cliente_telegram = ClienteTelegram()
     app.state.pipeline = pipeline
     app.state.telegram = cliente_telegram
+    app.state.limites_ip = LimitesUso()
+    app.state.updates_telegram = RegistroUpdates()
     app.include_router(router_api)
     app.include_router(router_telegram)
     return app

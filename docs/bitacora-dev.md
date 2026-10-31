@@ -4,12 +4,13 @@
 > Sigue la misma estructura que `docs/bitacora.md` (la memoria de planificación/infra); esta bitácora registra el *cómo se implementó*.
 > Convención de actualización en la §10. La fuente de verdad de las tareas es `openspec/changes/add-fisi-rag-chatbot/tasks.md` (41 tareas en 7 grupos).
 
-## Estado actual (2026-10-31, cierre de sesión D2)
+## Estado actual (2026-10-31, cierre de sesión D3)
 
-- **Grupos 1–6 completos y verificados**: 34/41 tareas de `tasks.md`. Las 7 restantes son el grupo 7 (despliegue ECS + Vercel), **esperando indicaciones del equipo**.
-- Verificación final: backend `pytest` **110 passed** (unit + integración con pgvector y Ollama reales) + `ruff check .` limpio; frontend `npm run lint` 0 errores, `npm run test` 9/9, `npm run build` pasa; identidad visual verificada con capturas Playwright en viewport móvil 390px (ambos temas, ambas vistas, sin scroll horizontal, 0 errores de consola).
-- Entorno de desarrollo completo (D2): Docker Desktop, gitleaks 8.30.1, sentence-transformers, Ollama con `qwen2.5:3b-instruct-q4_K_M` y pgvector de prueba — comandos en §3.
-- 4 bugs reales cazados por la verificación de D2 (§7): cast pgvector, torch CUDA en Docker, threads en CPU híbrido, aislamiento de tests.
+- **Cambio `harden-llm-security` aplicado y verificado (19/20 tareas)**: mitigaciones del análisis OWASP Top 10 LLM 2025 (`docs/owasp10llms-analisis.md`) — detalle en §4.
+- **Grupos 1–6 de `add-fisi-rag-chatbot` completos** (34/41); falta el grupo 7 (despliegue ECS + Vercel), **esperando indicaciones del equipo**.
+- Verificación D3: backend **146 passed / 4 skipped** (integración se salta sin `TEST_DATABASE_URL`/Ollama) + `ruff` limpio; frontend lint 0 errores, **11/11 tests**, build ✓; lockfile verificado con instalación limpia (`--require-hashes` + `pip check`) y `pip-audit` sin CVEs.
+- **Pendiente del cambio**: tarea 6.3 (verificar `docker compose config` con los digests — esta máquina no tiene Docker CLI) y **rotar el token del bot** al desplegar (viajó en URLs/access logs antes de la ruta fija del webhook).
+- Entorno D3: esta máquina no traía `backend/.venv` (el de D2 era otro entorno); reconstruido con `pip install ".[dev]"`. Docker CLI y Ollama local no disponibles aquí.
 - Hook de gitleaks: mecanismo único versionado en `.githooks/` — **el equipo debe ejecutar `git config core.hooksPath .githooks` una vez** antes del próximo commit.
 - Sin comandos git: los commits los maneja exclusivamente el equipo.
 
@@ -157,7 +158,7 @@ Resultado D2: `SCROLL_CHAT/LANDING {"scrollWidth":390,"innerWidth":390}`, `CONSO
 - [x] 4.2 `app/rag/generacion.py`: system prompt restrictivo (solo fragmentos, español, sin inventar, sin revelar instrucciones), temperatura baja en `ClienteLLMPrincipal`. Verificado con mock: el prompt incluye exclusivamente los fragmentos + instrucción de citar fuentes.
 - [x] 4.3 `app/rag/validacion.py` + política de reintento en el orquestador. Verificado con mocks: respuesta no respaldada no se entrega tal cual (1 regeneración con feedback; a la segunda falla, mensaje estándar); respaldada se entrega sin cambios.
 - [x] 4.4 Ensamblado de citas deduplicadas por URL + mensaje estándar sin resultados. Verificado: test end-to-end del pipeline con mocks (estados ok/bloqueada/sin_resultados, citas correctas).
-- [ ] 4.5 Ejemplo ejecutable `backend/ejemplo_contrato.py` verificado (imprime el contrato exacto en los 4 estados). **Pendiente**: sección del contrato en `backend/README.md` (espera a que el subagente de ingesta cree el README para no pisarlo).
+- [x] 4.5 Ejemplo ejecutable `backend/ejemplo_contrato.py` verificado (imprime el contrato exacto en los 4 estados) + sección `## Pipeline de respuesta (contrato)` en `backend/README.md` (entrada/salida/estados). Verificado: el ejemplo imprime los 4 estados y los comandos del README corren tal cual (tasks.md 4.5 `[x]`).
 - [x] 4.6 `app/core/limites.py` (verificado en grupo 1, ver arriba).
 - [x] 4.7 Log estructurado por consulta recibida (`{interfaz, categoria, estado, latencia_ms, timestamp}`). Verificado: consulta ok y bloqueada dejan cada una su registro con el estado correcto; la bloqueada por regex queda sin categoría (nunca clasificada).
 
@@ -184,6 +185,20 @@ El equipo confirmó que el token de BotFather ya está en `backend/.env` (junto 
 ### Grupo 7 — Despliegue en Huawei Cloud
 
 Esperando indicaciones del equipo (bitacora §Pendientes).
+
+### Cambio `harden-llm-security` (D3) — hardening OWASP Top 10 LLM
+
+Aplicado en D3 con **5 subagentes en paralelo** de alcances disjuntos (pipeline/guardián, core/interfaces, ingesta, frontend, cadena de suministro) sobre una base compartida creada antes del reparto (campos de settings, `mensajes.ERROR_SERVICIO`, `guard/fuga.py`). 19/20 tareas verificadas.
+
+- [x] 1.1–1.3 (agente A): delimitadores `<<<FRAGMENTO n>>> … <<<FIN>>>` + instrucción anti-inyección en generación y validación; guardián fail-closed (reescritura vacía o demasiado larga → consulta original); canario por proceso (`app/guard/fuga.py`) y bloqueo de respuestas que lo contengan (motivo `fuga_system_prompt`).
+- [x] 2.1–2.2 (A + B): marcador `{"fuentes": [n]}` al final de la respuesta → citas solo de los fragmentos usados (fallback: todas, nunca se pierden); `LLM_MAX_TOKENS`/`LLM_TIMEOUT_SECONDS` en `ClienteLLMPrincipal`; fallo del LLM → `ERROR_SERVICIO` con estado `sin_resultados` y log con solo el tipo de excepción.
+- [x] 3.1–3.2 (B): `verificar_ip` (X-Forwarded-For de Caddy) en la API web — deliberadamente NO en el orquestador: las peticiones de Telegram llegan desde IPs compartidas por todos los usuarios; purga de contadores con `TOPE_IDENTIDADES=10_000` + TTL 1 h.
+- [x] 4.1–4.3 (B): ruta fija `POST /telegram/webhook` (el token ya no viaja en la URL; auth solo por header secreto; **rotar el token al desplegar**); redacción de logs (sin cuerpos de respuesta ni DSN); `RegistroUpdates` anti-replay por `update_id` (TTL 1 h, marca tras procesar con éxito).
+- [x] 5.1–5.2 (C): allowlist anti-SSRF en PDFs (`sistemas.unmsm.edu.pe`, `unmsm.edu.pe` + `INGESTA_HOSTS_PERMITIDOS`; rechazo de hosts que resuelvan a IP privada/loopback/link-local; verificación de cabecera `%PDF-`).
+- [x] 6.1/6.2/6.4 (E + coordinador): `requirements.lock` con hashes (42 paquetes; el extra `[ingest]` queda fuera por torch plataforma-específico); `EMBEDDINGS_REVISION` cableada en `ClienteEmbeddings` (revisión real `614241f…` de Hugging Face); digests del modelo de Ollama y de las imágenes (python/ollama/caddy) fijados en docker; `pip-audit` sin CVEs; SBOM documentado en `backend/README.md`.
+- [ ] 6.3: digests aplicados en `Dockerfile.backend` y `docker-compose.prod.yml`; verificación con `docker compose config` pendiente (sin Docker CLI en esta máquina — correr en el ECS).
+- [x] 7.1 (D): `esUrlSegura` en la web — solo `http/https` se renderiza como enlace; otro esquema, texto sin `href`.
+- [x] 8.1–8.3: `.env.example`, `backend/README.md` (contrato + cadena de suministro) y `docs/guia-deploy.md` (variables nuevas, webhook sin token, digest de Ollama) actualizados; suite completa en verde. `TELEGRAM_WEBHOOK_PATH` descopeado por KISS (ruta fija suficiente).
 
 ## 5. Estructura de código creada
 
@@ -238,6 +253,7 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 |---|---|---|
 | 2026-10-30 | **D1 — Implementación grupos 1–6** | Conciliación 39/40→41 tareas · scaffolding backend+frontend+docker+gitleaks · settings tipado · ingesta completa con scraper real (hallazgo TLS del portal FISI, §7) · guardián regex+light LM · pipeline RAG con orquestador único · API web + SPA React con arte Lima · bot de Telegram completo · 27/41 tareas verificadas (106 tests backend + 9 frontend en verde) · pendientes: verificaciones con Docker/pgvector/Ollama, DevTools 5.3, primer commit (gitleaks) y grupo 7 |
 | 2026-10-31 | **D2 — Verificación de entorno, cierre de grupos 1–6** | Entorno completo instalado (Docker Desktop, gitleaks, sentence-transformers vía winget/pip, §3) · 7 tareas verificadas: 1.3 build, 1.5 Ollama+modelo, 1.6 gitleaks, 2.6 pgvector, 3.2 Ollama real (8.8s), 4.1 retrieval, 5.3 visual Playwright 390px · 4 bugs cazados y corregidos (§7.3–7.6): torch CUDA en Docker, threads CPU híbrido, cast pgvector, aislamiento de tests · hook gitleaks conciliado a `.githooks/` único · guía de despliegue creada (`docs/guia-deploy.md`: ECS, Vercel, webhook, cron, rollback) · 34/41 tareas, 110/110 tests backend + 9 frontend en verde |
+| 2026-10-31 | **D3 — Hardening de seguridad LLM (cambio `harden-llm-security`)** | Análisis OWASP Top 10 LLM 2025 (`docs/owasp10llms-analisis.md`) + cambio OpenSpec propuesto y aplicado · 5 subagentes en paralelo sobre base compartida (settings, `ERROR_SERVICIO`, `guard/fuga.py`) · 19/20 tareas: aislamiento de contexto anti-inyección indirecta, guardián fail-closed, canario anti-fuga, citas fieles, LLM acotado (max_tokens/timeout), límite web por IP + memoria de contadores acotada, webhook sin token en URL + anti-replay, redacción de logs, anti-SSRF en ingesta, URLs seguras en la web, lockfile con hashes + digests de imágenes/modelos · 146 tests backend + 11 frontend en verde, lock verificado con instalación limpia, pip-audit sin CVEs · venv reconstruido (esta máquina no traía el de D2) · pendientes: 6.3 (docker compose config) y grupo 7 |
 
 ## 10. Convención para actualizar esta bitácora
 
@@ -255,4 +271,7 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 - [x] Revisión en viewport móvil de la identidad visual (5.3) (D2, Playwright §3.4).
 - [ ] Commit de la implementación (equipo) — **antes**: `git config core.hooksPath .githooks` (una vez por clon) para activar el hook de gitleaks versionado.
 - [ ] Grupo 7 (despliegue ECS + Vercel): esperando indicaciones del equipo; el token de BotFather y la API key de MaaS ya están en `backend/.env`.
+- [x] Cambio `harden-llm-security` aplicado (D3, 19/20 tareas — ver §4).
+- [ ] Tarea 6.3: verificar `docker compose -f docker/docker-compose.prod.yml config` con los digests (requiere Docker CLI / el ECS).
+- [ ] Rotar el token del bot de Telegram al desplegar (viajó en URLs/access logs antes de la ruta fija del webhook, tarea 4.1).
 - [ ] `/opsx:archive` tras completar y revisar el grupo 7.

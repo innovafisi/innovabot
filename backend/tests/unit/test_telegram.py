@@ -1,9 +1,13 @@
 """Tests del bot de Telegram (grupo 6): webhook, comandos, fallos y filtro de alcance.
+Tarea 4.1: webhook sin token en la URL (LLM02).
+Tarea 4.2: redacción de errores (LLM02).
+Tarea 4.3: anti-replay de updates (LLM10).
 
 Mock de la API de Telegram (cliente falso) y stub del pipeline; los casos de
 límite usan el orquestador REAL con clientes falsos, como en test_orquestador.
 """
 
+import itertools
 import json
 import logging
 
@@ -23,6 +27,9 @@ from tests.unit.fakes import (
 
 TOKEN = "123456:test-token"  # dummy de conftest.py, nunca el real
 SECRET = "secreto-test"  # dummy de conftest.py
+
+# Contador global para generar update_ids únicos por llamada
+_update_id_counter = itertools.count(1)
 
 
 class TelegramFalso:
@@ -50,7 +57,7 @@ class PipelineStub:
 
 def update_privado(texto: str, chat_id: int = 100, user_id: int = 200) -> dict:
     return {
-        "update_id": 1,
+        "update_id": next(_update_id_counter),
         "message": {
             "message_id": 10,
             "chat": {"id": chat_id, "type": "private"},
@@ -62,7 +69,7 @@ def update_privado(texto: str, chat_id: int = 100, user_id: int = 200) -> dict:
 
 def update_grupo(texto: str, chat_id: int = -100) -> dict:
     return {
-        "update_id": 2,
+        "update_id": next(_update_id_counter),
         "message": {
             "message_id": 11,
             "chat": {"id": chat_id, "type": "group"},
@@ -76,9 +83,9 @@ def cliente_api(pipeline, telegram: TelegramFalso) -> TestClient:
     return TestClient(crear_app(pipeline=pipeline, cliente_telegram=telegram))
 
 
-def post_update(cliente: TestClient, update: dict, secret: str = SECRET, token: str = TOKEN):
+def post_update(cliente: TestClient, update: dict, secret: str = SECRET):
     return cliente.post(
-        f"/telegram/webhook/{token}",
+        "/telegram/webhook",
         json=update,
         headers={"X-Telegram-Bot-Api-Secret-Token": secret},
     )
@@ -108,14 +115,17 @@ def test_webhook_sin_secret_rechazado_401():
     assert telegram.enviados == []
 
 
-def test_webhook_token_invalido_rechazado_403():
-    """Tarea 6.1: un token incorrecto en la ruta se rechaza 403."""
+def test_ruta_con_token_da_404():
+    """Tarea 4.1: la ruta con token (/telegram/webhook/{token}) ya no existe → 404."""
     telegram = TelegramFalso()
     stub = PipelineStub()
     cliente = cliente_api(stub, telegram)
-    respuesta = post_update(cliente, update_privado("hola"), token="token:falso")
-    assert respuesta.status_code == 403
-    assert stub.llamadas == []
+    respuesta = cliente.post(
+        f"/telegram/webhook/{TOKEN}",
+        json=update_privado("hola"),
+        headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+    )
+    assert respuesta.status_code == 404
 
 
 def test_respuesta_con_citas_en_el_mismo_chat():
@@ -224,7 +234,7 @@ def test_update_sin_texto_se_descarta():
     telegram = TelegramFalso()
     stub = PipelineStub()
     cliente = cliente_api(stub, telegram)
-    post_update(cliente, {"update_id": 3})
+    post_update(cliente, {"update_id": next(_update_id_counter)})
     assert telegram.enviados == []
     assert stub.llamadas == []
 
@@ -242,3 +252,47 @@ def test_formato_de_log_por_consulta_telegram(caplog):
     assert len(registros) == 1
     assert registros[0]["interfaz"] == "telegram"
     assert registros[0]["estado"] == "sin_resultados"
+
+
+# --- Tarea 4.3: anti-replay de updates ---
+
+
+def test_anti_replay_mismo_update_procesado_una_vez():
+    """Mismo update posteado 2 veces → el stub procesa 1 vez y Telegram recibe 1 sola respuesta."""
+    telegram = TelegramFalso()
+    stub = PipelineStub(Respuesta(reply="ok", estado="ok"))
+    cliente = cliente_api(stub, telegram)
+    update = update_privado("hola")
+    # Primera petición: se procesa
+    resp1 = post_update(cliente, update)
+    assert resp1.status_code == 200
+    assert resp1.json() == {"ok": True}
+    # Segunda petición con el mismo update_id: ya visto, se responde ok sin reprocesar
+    resp2 = post_update(cliente, update)
+    assert resp2.status_code == 200
+    assert resp2.json() == {"ok": True}
+    # El pipeline solo se llamó una vez
+    assert len(stub.llamadas) == 1
+    # Telegram solo recibió una respuesta
+    assert len(telegram.enviados) == 1
+
+
+# --- Tarea 4.2: redacción de errores (LLM02) ---
+
+
+def test_redaccion_error_no_filtra_secreto(caplog):
+    """Pipeline que lanza con credenciales en el mensaje → el log NO contiene el secreto."""
+    caplog.set_level(logging.ERROR, logger="innovabot")
+    telegram = TelegramFalso()
+    dsn = "postgresql://root:secreto@192.168.0.168/db"
+    stub = PipelineStub(error=RuntimeError(dsn))
+    cliente = cliente_api(stub, telegram)
+    respuesta = post_update(cliente, update_privado("hola"))
+    assert respuesta.status_code == 200
+    assert telegram.enviados == [(100, MENSAJE_ERROR)]
+    # Verificar que el log NO contiene "secreto" ni "postgresql://"
+    for registro in caplog.records:
+        if registro.name == "innovabot" and registro.levelname == "ERROR":
+            msg = registro.getMessage()
+            assert "secreto" not in msg
+            assert "postgresql://" not in msg

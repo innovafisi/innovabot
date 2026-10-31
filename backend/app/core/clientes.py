@@ -55,24 +55,36 @@ class ClienteLightLM:
         try:
             return json.loads(texto)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"El light LM no devolvió JSON válido: {texto!r}") from exc
+            raise ValueError("El light LM no devolvió JSON válido") from exc
 
 
 class ClienteLLMPrincipal:
     """LLM principal vía MaaS, consumido con el SDK `openai` contra su
     endpoint compatible (base_url de MaaS + API key de MaaS)."""
 
-    def __init__(self, temperatura: float = 0.2) -> None:
+    def __init__(
+        self,
+        temperatura: float = 0.2,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> None:
         settings = get_settings()
         self.modelo = settings.main_llm_model
         self.temperatura = temperatura
-        self._cliente = OpenAI(api_key=settings.maas_api_key, base_url=settings.maas_base_url)
+        self.max_tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
+        self.timeout = timeout if timeout is not None else settings.llm_timeout_seconds
+        self._cliente = OpenAI(
+            api_key=settings.maas_api_key,
+            base_url=settings.maas_base_url,
+            timeout=self.timeout,
+        )
 
     def completar(self, sistema: str, usuario: str) -> str:
         """Genera texto con contexto recuperado; temperatura baja por diseño."""
         respuesta = self._cliente.chat.completions.create(
             model=self.modelo,
             temperature=self.temperatura,
+            max_tokens=self.max_tokens,
             messages=[
                 {"role": "system", "content": sistema},
                 {"role": "user", "content": usuario},
@@ -93,7 +105,12 @@ class ClienteEmbeddings:
     """
 
     def __init__(self, modelo: str | None = None) -> None:
-        self.nombre_modelo = modelo or get_settings().embeddings_model
+        settings = get_settings()
+        self.nombre_modelo = modelo or settings.embeddings_model
+        # Revisión fija del modelo en Hugging Face (harden-llm-security, LLM03):
+        # sin ella, "latest" podría cambiar el espacio vectorial entre la
+        # ingesta y las consultas, corrompiendo silenciosamente el retrieval.
+        self.revision = settings.embeddings_revision
         self._modelo = None
 
     def _cargar(self):
@@ -105,7 +122,7 @@ class ClienteEmbeddings:
                     "sentence-transformers no está instalado. Instala el extra "
                     "`pip install '.[ingest]'` (ver backend/README.md)."
                 ) from exc
-            self._modelo = SentenceTransformer(self.nombre_modelo)
+            self._modelo = SentenceTransformer(self.nombre_modelo, revision=self.revision)
         return self._modelo
 
     def embeber(self, textos: list[str], *, es_consulta: bool = False) -> list[list[float]]:
@@ -247,5 +264,5 @@ class ClienteTelegram:
         with httpx.Client(timeout=30.0) as cliente:
             respuesta = cliente.post(url, json={"chat_id": chat_id, "text": texto})
             if respuesta.status_code >= 400:
-                logger.error("Telegram respondió %s: %s", respuesta.status_code, respuesta.text)
+                logger.error("Telegram respondió %s al enviar un mensaje", respuesta.status_code)
                 respuesta.raise_for_status()

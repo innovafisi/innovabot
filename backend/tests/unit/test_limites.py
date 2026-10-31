@@ -1,4 +1,7 @@
-"""Tarea 4.6: límites de uso (5/min, 30/hora, 500 chars) por identidad."""
+"""Tarea 4.6: límites de uso (5/min, 30/hora, 500 chars) por identidad.
+Tarea 3.1: límite por IP (LLM10).
+Tarea 3.2: memoria de contadores acotada (LLM10).
+"""
 
 import pytest
 
@@ -84,3 +87,68 @@ def test_ventana_deslizante_se_recupera():
         limites.verificar("web:uuid-x")
     reloj.avanzar(61)
     limites.verificar("web:uuid-x")  # ya no lanza
+
+
+# --- Tarea 3.1: límite por IP ---
+
+
+def test_limite_por_ip():
+    """La N+1ª consulta desde la misma IP lanza LimiteExcedido."""
+    reloj = RelojFalso()
+    limites = LimitesUso(por_minuto_ip=3, reloj=reloj)
+    for _ in range(3):
+        limites.verificar_ip("1.2.3.4")
+    with pytest.raises(LimiteExcedido) as excinfo:
+        limites.verificar_ip("1.2.3.4")
+    assert excinfo.value.reintento_segundos > 0
+
+
+def test_ips_distintas_no_interfieren():
+    """IPs distintas tienen contadores independientes."""
+    reloj = RelojFalso()
+    limites = LimitesUso(por_minuto_ip=2, reloj=reloj)
+    limites.verificar_ip("1.1.1.1")
+    limites.verificar_ip("1.1.1.1")
+    # Esta IP ya está al límite, pero otra IP no se ve afectada
+    limites.verificar_ip("2.2.2.2")
+    limites.verificar_ip("2.2.2.2")
+
+
+def test_limite_ip_configurable_por_env(monkeypatch):
+    """RATE_LIMIT_IP_PER_MINUTE controla el límite por IP."""
+    monkeypatch.setenv("RATE_LIMIT_IP_PER_MINUTE", "3")
+    limites = LimitesUso(reloj=RelojFalso())
+    assert limites.por_minuto_ip == 3
+    for _ in range(3):
+        limites.verificar_ip("1.2.3.4")
+    with pytest.raises(LimiteExcedido):
+        limites.verificar_ip("1.2.3.4")
+
+
+# --- Tarea 3.2: memoria de contadores acotada ---
+
+
+def test_purga_con_tope_pequeno():
+    """Con tope=10, crear 12 identidades mantiene identidades_en_memoria <= 10."""
+    reloj = RelojFalso()
+    limites = LimitesUso(por_minuto=100, por_hora=100, tope=10, reloj=reloj)
+    for i in range(12):
+        limites.verificar(f"web:sesion-{i}")
+    assert limites.identidades_en_memoria <= 10
+
+
+def test_purga_inactivas_al_avanzar_reloj():
+    """Avanzar el reloj 3601 s + una llamada más purga las inactivas."""
+    reloj = RelojFalso()
+    limites = LimitesUso(por_minuto=100, por_hora=100, tope=10, reloj=reloj)
+    # Llenar hasta el tope con identidades
+    for i in range(10):
+        limites.verificar(f"web:sesion-{i}")
+    assert limites.identidades_en_memoria == 10
+    # Avanzar más allá del TTL de 3600 s
+    reloj.avanzar(3601)
+    # Una nueva llamada dispara la purga de las inactivas (las 10 originales
+    # tienen marcas con edad >= 3600 s) y luego añade la nueva
+    limites.verificar("web:sesion-nueva")
+    # Las 10 originales son inactivas y se purgan; solo queda la nueva
+    assert limites.identidades_en_memoria == 1

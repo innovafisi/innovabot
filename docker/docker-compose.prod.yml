@@ -1,0 +1,71 @@
+# Stack de PRODUCCIÓN en el ECS (tarea 7.1 de tasks.md).
+# Diferencias con el de desarrollo: Caddy publica 80/443 con Let's Encrypt,
+# Ollama NO publica puertos (interno), restart: always.
+# Uso (desde la raíz del repo en el ECS):
+#   docker compose -f docker/docker-compose.prod.yml up -d
+#   docker compose -f docker/docker-compose.prod.yml --profile ingest run --rm ingest
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    env_file: ../backend/.env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      # OLLAMA_NUM_THREADS: NO definir aquí — el ECS tiene vCPUs uniformes y el
+      # auto-detect de Ollama es correcto (bitacora-dev §7.4: solo los CPUs
+      # híbridos de desarrollo necesitan el límite).
+    restart: always
+    depends_on:
+      - ollama
+
+  ingest:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    env_file: ../backend/.env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    command: python -m app.ingest
+    profiles:
+      - ingest
+    restart: "no"
+    depends_on:
+      - ollama
+
+  ollama:
+    # Imagen fijada por digest (tarea 6.3, 2026-10-31). Para actualizar: obtener
+    # el digest del manifest list del tag estable más reciente vía
+    # https://hub.docker.com/v2/repositories/ollama/ollama/tags?page_size=100
+    # y reemplazar versión y hash a continuación.
+    image: ollama/ollama:0.40.13@sha256:b2f0122c476bc9fe7ce679d8bb4bd555351e25e2554eefb156f61cb0a89cf429
+    environment:
+      # Una generación a la vez: evita disputa de RAM (design.md §Modelos).
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: always
+    # SIN "ports": interno. Solo Caddy expone 80/443 en la EIP.
+
+  caddy:
+    # Imagen fijada por digest (tarea 6.3, 2026-10-31). Para actualizar: obtener
+    # el digest del manifest list vía
+    # https://hub.docker.com/v2/repositories/library/caddy/tags/2-alpine
+    # y reemplazar el hash a continuación.
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # certs Let's Encrypt persisten entre reinicios
+      - caddy-config:/config
+    restart: always
+    depends_on:
+      - app
+
+volumes:
+  ollama-data:
+  caddy-data:
+  caddy-config:

@@ -7,14 +7,17 @@ fuera de alcance).
 """
 
 import io
+import ipaddress
 import logging
 import re
-from urllib.parse import urljoin
+import socket
+from urllib.parse import urljoin, urlparse
 
 import pdfplumber
 from bs4 import BeautifulSoup
 
 from app.core.modelos import Fragmento
+from app.core.settings import get_settings
 from app.ingestion.chunking import fragmentar, normalizar
 
 logger = logging.getLogger("innovabot")
@@ -25,6 +28,71 @@ PAGINAS_CON_PDFS = [
     "https://sistemas.unmsm.edu.pe/site/estudiantes/tramites-posgrado",
     "https://sistemas.unmsm.edu.pe/site/pagos-exigidos-a-los-alumnos",
 ]
+
+# Dominios oficiales desde los que se permite descargar PDFs (fijos). La
+# allowlist se completa con `INGESTA_HOSTS_PERMITIDOS` (settings).
+HOSTS_PORTAL = ["sistemas.unmsm.edu.pe", "unmsm.edu.pe"]
+
+
+def hosts_permitidos() -> list[str]:
+    """Allowlist de hosts de descarga: dominios oficiales + los extra de settings."""
+    return HOSTS_PORTAL + get_settings().hosts_ingesta_extra
+
+
+def _resolver_host(host: str) -> list[str]:
+    """IPs a las que resuelve `host`.
+
+    Indirecto módulo-level a propósito: los unit tests lo monkeypatchean para no
+    resolver DNS real.
+    """
+    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+
+
+def _es_ip_interna(ip_texto: str) -> bool:
+    """True si la IP es privada, loopback, link-local, reservada o multicast."""
+    try:
+        ip = ipaddress.ip_address(ip_texto)
+    except ValueError:
+        # Texto que no parsea como IP: por seguridad se trata como interna.
+        return True
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+    )
+
+
+def url_permitida(url: str, hosts: list[str] | None = None) -> bool:
+    """True si `url` apunta a un host de la allowlist que resuelve a IPs públicas.
+
+    Defensa anti-SSRF: rechaza esquemas no web, hosts fuera de la allowlist
+    (incluidas IPs literales) y hosts de la allowlist cuya resolución apunte a
+    direcciones internas de la VPC.
+    """
+    hosts = hosts if hosts is not None else hosts_permitidos()
+    partes = urlparse(url)
+    if partes.scheme not in ("http", "https"):
+        return False
+    host = (partes.hostname or "").lower()
+    if not host:
+        return False
+    # Host permitido o subdominio suyo (las IPs literales nunca están en la lista).
+    if not any(host == h.lower() or host.endswith("." + h.lower()) for h in hosts):
+        return False
+    try:
+        ips = _resolver_host(host)
+    except Exception:  # noqa: BLE001 - resolución fallida = no permitida
+        return False
+    if any(_es_ip_interna(ip) for ip in ips):
+        return False
+    return True
+
+
+def es_pdf(contenido: bytes) -> bool:
+    """True si `contenido` parece un PDF (cabecera `%PDF-` en los primeros 1 KB)."""
+    return b"%PDF-" in contenido[:1024]
 
 
 class PdfIlegible(ValueError):
@@ -92,8 +160,16 @@ def procesar_pdfs(
     fragmentos: list[Fragmento] = []
     errores: list[str] = []
     for url in urls[:limite] if limite else urls:
+        if not url_permitida(url):
+            errores.append(f"{url}: URL no permitida por la política de descarga (anti-SSRF)")
+            logger.warning("URL no permitida (anti-SSRF): %s", url)
+            continue
         try:
             pdf_bytes = descargar_pdf(cliente_http, url)
+            if not es_pdf(pdf_bytes):
+                errores.append(f"{url}: el contenido descargado no es un PDF")
+                logger.warning("Contenido no PDF descartado: %s", url)
+                continue
             fragmentos.extend(
                 fragmentar_pdf(pdf_bytes, url=url, titulo=_titulo_desde_url(url))
             )

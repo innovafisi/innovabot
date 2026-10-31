@@ -54,6 +54,10 @@ def test_settings_carga_con_defaults(monkeypatch):
     assert settings.light_llm_model == "qwen2.5:3b-instruct-q4_K_M"
     assert settings.embeddings_model == "intfloat/multilingual-e5-small"
     assert settings.origenes_cors == ["http://localhost:5173"]
+    # Defaults nuevos (harden-llm-security)
+    assert settings.rate_limit_ip_per_minute == 20
+    assert settings.llm_max_tokens == 512
+    assert settings.llm_timeout_seconds == 30.0
 
 
 def test_origenes_cors_varios():

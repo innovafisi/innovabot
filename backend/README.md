@@ -53,6 +53,12 @@ Comportamiento:
   paquete incluye el certificado intermedio público correcto
   (`app/ingestion/intermedio_sectigo.crt`, descargado del AIA del certificado)
   para que la verificación TLS funcione también en Linux. No es un secret.
+- Política anti-SSRF (cambio `harden-llm-security`, LLM04): los PDFs solo se
+  descargan desde los dominios oficiales (`sistemas.unmsm.edu.pe`,
+  `unmsm.edu.pe`) y los hosts extra de `INGESTA_HOSTS_PERMITIDOS`; toda URL
+  cuyo host resuelva a una IP privada/loopback/link-local se descarta y queda
+  registrada. Además, el contenido descargado debe ser un PDF real (cabecera
+  `%PDF-`) para procesarse.
 
 ### Variables de entorno
 
@@ -63,6 +69,8 @@ que está en `.gitignore` — el repo es público). Las relacionadas con la inge
 | --- | --- | --- |
 | `DATABASE_URL` | Sí | PostgreSQL con pgvector (RDS `rag_fisi` en producción) |
 | `EMBEDDINGS_MODEL` | No | Modelo de embeddings (default `intfloat/multilingual-e5-small`) |
+| `EMBEDDINGS_REVISION` | No | Revisión fija del modelo en Hugging Face (integridad, `harden-llm-security` LLM03) |
+| `INGESTA_HOSTS_PERMITIDOS` | No | Hosts extra de la allowlist anti-SSRF, separados por coma |
 | `FAQS_MD` | No | Ruta del archivo de FAQs curadas (default `data/faqs.md`) |
 | `SECCIONES_PORTAL_YML` | No | Ruta del YAML de secciones del portal central (default `data/secciones_portal.yml`) |
 
@@ -107,8 +115,8 @@ Ambas interfaces (web y Telegram) pasan por el **mismo orquestador**
 (`app/rag/orquestador.py`), que aplica los chequeos del más barato al más
 caro: longitud → rate limit → regex → light LM (guard + clasificación +
 reescritura en UNA llamada) → retrieval pgvector (boost a FAQs) → LLM
-principal → validación anti-alucinación (1 reintento con feedback) →
-respuesta con citas.
+principal → validación anti-alucinación (1 reintento con feedback) → filtro
+de salida anti-fuga → respuesta con citas de los fragmentos usados.
 
 ### Entrada
 
@@ -126,14 +134,32 @@ respuesta con citas.
 | Estado | Significado |
 | --- | --- |
 | `ok` | Respuesta generada y validada, con las citas de los fragmentos usados (dedup por URL) |
-| `bloqueada` | Rechazada por longitud (>500 chars), por el guardián (regex o light LM) o por estar fuera de alcance; `reply` es el mensaje estándar correspondiente |
-| `sin_resultados` | Sin fragmentos con relevancia suficiente, o la validación anti-alucinación falló dos veces; `reply` sugiere el portal oficial |
-| `limitada` | Rate limit excedido; `reply` indica cuánto esperar |
+| `bloqueada` | Rechazada por longitud (>500 chars), por el guardián (regex o light LM), por estar fuera de alcance o por detectarse una fuga de instrucciones internas en la salida; `reply` es el mensaje estándar correspondiente |
+| `sin_resultados` | Sin fragmentos con relevancia suficiente, la validación anti-alucinación falló dos veces, o el LLM principal falló (timeout/error); `reply` es el mensaje estándar correspondiente |
+| `limitada` | Rate limit excedido (por identidad o por IP en la web); `reply` indica cuánto esperar |
 
 Mapeos documentados (los specs definen solo estos 4 estados): una consulta
 fuera de alcance responde `bloqueada` con el mensaje de temas atendidos; un
 fallo doble de validación responde `sin_resultados` con el mensaje de
-información no disponible.
+información no disponible; un fallo del LLM principal (timeout o error del
+servicio) responde `sin_resultados` con un mensaje amigable sin detalles
+técnicos.
+
+Endurecimiento del cambio `harden-llm-security`:
+
+- **Citas fieles**: el LLM principal cierra su respuesta con un marcador
+  `{"fuentes": [n]}`; el orquestador lo extrae y cita solo esos fragmentos
+  (el `reply` entregado no incluye el marcador). Sin marcador válido, cita
+  todas las fuentes recuperadas — nunca se pierden citas.
+- **Aislamiento de contexto**: los fragmentos viajan delimitados
+  (`<<<FRAGMENTO n>>> … <<<FIN>>>`) y los system prompts ordenan tratarlos
+  como datos, nunca como instrucciones (anti prompt-injection indirecta).
+- **Filtro anti-fuga**: un canario por proceso viaja en los system prompts;
+  si la respuesta generada lo contiene (fuga verbatim de instrucciones), se
+  responde `bloqueada` con el mensaje estándar.
+- **Consumo acotado**: cada llamada al LLM principal lleva `LLM_MAX_TOKENS`
+  y `LLM_TIMEOUT_SECONDS`; la web aplica además un límite por IP
+  (`RATE_LIMIT_IP_PER_MINUTE`) además del límite por identidad.
 
 ### Ejemplo ejecutable
 
@@ -159,21 +185,51 @@ Arrancar en desarrollo:
 
 ## Webhook de Telegram
 
-`POST /telegram/webhook/{token}` (spec telegram-ui): doble verificación — el
-token del bot va en la ruta y Telegram firma cada petición con el header
-`X-Telegram-Bot-Api-Secret-Token` (401/403 si algo no coincide). Solo se
-atienden chats privados; `/start` y `/help` se responden sin entrar al
-pipeline; el resto de mensajes usa el mismo orquestador con identidad
-`telegram:<user_id>`.
+`POST /telegram/webhook` (spec telegram-ui + cambio `harden-llm-security`,
+LLM02): ruta fija — el token del bot **no** viaja en la URL ni llega a los
+access logs. La autenticación es el header `X-Telegram-Bot-Api-Secret-Token`
+que Telegram firma en cada petición (401 si no coincide). Los updates
+repetidos (mismo `update_id` dentro de una ventana de 1 h) se descartan sin
+reprocesar (anti-replay). Solo se atienden chats privados; `/start` y
+`/help` se responden sin entrar al pipeline; el resto de mensajes usa el
+mismo orquestador con identidad `telegram:<user_id>`.
 
 Registro del webhook en producción (requiere el dominio con TLS del grupo 7;
 los valores vienen de las variables de entorno, nunca del repo):
 
 ```bash
 curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-     -d "url=https://<dominio>/telegram/webhook/<TELEGRAM_BOT_TOKEN>" \
-     -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+     -d "url=https://<dominio>/telegram/webhook" \
+     -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>" \
+     -d 'allowed_updates=["message"]'
 ```
+
+## Cadena de suministro (cambio `harden-llm-security`, LLM03)
+
+- **Dependencias base fijadas**: `requirements.lock` (generado con
+  `pip-compile --generate-hashes`) instala versiones exactas verificadas por
+  hash. Regenerar tras cambiar `pyproject.toml`:
+
+  ```bash
+  pip install pip-tools
+  pip-compile --generate-hashes --output-file requirements.lock pyproject.toml
+  ```
+
+  El extra `[ingest]` (sentence-transformers/torch) queda fuera del lock:
+  torch es plataforma-específica y el Dockerfile lo instala CPU-first desde
+  el índice de PyTorch antes que el resto.
+- **Auditoría de vulnerabilidades** (manual mientras no haya CI):
+
+  ```bash
+  pip install pip-audit
+  pip-audit --require-hashes -r requirements.lock
+  ```
+
+- **SBOM** (cuando exista CI; mientras tanto, paso manual): `syft dir:. -o
+  cyclonedx-json > sbom.json` sobre el build de la imagen.
+- **Modelos e imágenes fijados**: `EMBEDDINGS_REVISION` (commit de Hugging
+  Face del modelo de embeddings), digest del modelo de Ollama y digests de
+  las imágenes de contenedor — ver `docs/guia-deploy.md`.
 
 ## Tests
 

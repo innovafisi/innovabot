@@ -1,13 +1,15 @@
 """Webhook de Telegram (spec telegram-ui).
 
-Doble verificación de autenticidad: el token del bot va en la ruta (secreto)
-y Telegram firma cada petición con el header X-Telegram-Bot-Api-Secret-Token.
+Autenticación SOLO por header X-Telegram-Bot-Api-Secret-Token (LLM02:
+el token del bot ya no viaja en la URL ni llega a los access logs).
 Solo se atienden chats privados; /start y /help se responden sin entrar al
 pipeline; el resto de mensajes pasa por el MISMO orquestador que la web,
 con rate limit contra el user ID de Telegram.
 """
 
 import logging
+import time
+from collections.abc import Callable
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -68,6 +70,31 @@ class UpdateTelegram(BaseModel):
     message: MensajeTelegram | None = None
 
 
+class RegistroUpdates:
+    """Anti-replay de update_ids con TTL (LLM10): evita reprocesar updates
+    que Telegram reenvía tras un timeout del webhook. Semántica at-least-once
+    con deduplicación en éxito."""
+
+    def __init__(
+        self, ttl: float = 3600.0, reloj: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.ttl = ttl
+        self._reloj = reloj
+        self._vistos: dict[int, float] = {}  # update_id -> marca de tiempo
+
+    def ya_visto(self, update_id: int) -> bool:
+        """True si el update_id ya fue procesado; lo marca como visto si no."""
+        ahora = self._reloj()
+        # Purgar expirados
+        self._vistos = {
+            uid: marca for uid, marca in self._vistos.items() if ahora - marca < self.ttl
+        }
+        if update_id in self._vistos:
+            return True
+        self._vistos[update_id] = ahora
+        return False
+
+
 def formatear_respuesta(respuesta: Respuesta) -> str:
     """Texto plano para Telegram: la respuesta + las citas como lista."""
     if not respuesta.citas:
@@ -99,27 +126,39 @@ def procesar_update(
     user_id = mensaje.from_user.id if mensaje.from_user else mensaje.chat.id
     try:
         respuesta = pipeline.procesar(texto, f"telegram:{user_id}", "telegram")
-    except Exception:
-        logger.exception("Fallo del pipeline ante un update de Telegram")
+    except Exception as exc:
+        # LLM02: solo el tipo de la excepción, nunca el mensaje (puede
+        # contener DSN o credenciales).
+        logger.error(
+            "Fallo del pipeline ante un update de Telegram (%s)", type(exc).__name__
+        )
         cliente.enviar_mensaje(mensaje.chat.id, MENSAJE_ERROR)
         return
     cliente.enviar_mensaje(mensaje.chat.id, formatear_respuesta(respuesta))
 
 
-@router.post("/telegram/webhook/{token}")
+@router.post("/telegram/webhook")
 def webhook(
-    token: str,
     update: UpdateTelegram,
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> dict:
-    """Recibe updates de Telegram; 401/403 si la autenticación no coincide."""
+    """Recibe updates de Telegram; 401 si el secret token no coincide."""
     settings = get_settings()
-    if token != settings.telegram_bot_token:
-        raise HTTPException(status_code=403, detail="Token inválido")
     if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
         raise HTTPException(status_code=401, detail="Secret token inválido")
 
-    procesar_update(update, request.app.state.pipeline, request.app.state.telegram)
-    # Telegram espera 200 rápido: los fallos ya se manejan dentro con mensaje amigable
+    # Anti-replay (LLM10): si el update ya fue procesado, responder ok sin reprocesar
+    registro: RegistroUpdates = request.app.state.updates_telegram
+    if registro.ya_visto(update.update_id):
+        return {"ok": True}
+
+    try:
+        procesar_update(update, request.app.state.pipeline, request.app.state.telegram)
+    except Exception:
+        # Si procesar_update lanza (p. ej. fallo de red enviando), el update
+        # no queda marcado como visto, el webhook devuelve 500 y Telegram
+        # reintenta (semántica at-least-once con deduplicación en éxito).
+        logger.error("Error inesperado procesando update de Telegram")
+        raise HTTPException(status_code=500, detail="Error interno") from None
     return {"ok": True}

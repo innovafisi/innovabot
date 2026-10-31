@@ -1,4 +1,8 @@
-"""Tarea 5.1: POST /api/chat — formato, límites, session ID y CORS."""
+"""Tarea 5.1: POST /api/chat — formato, límites, session ID y CORS.
+Tarea 3.1: límite por IP en la API web (LLM10).
+"""
+
+import os
 
 from fastapi.testclient import TestClient
 
@@ -22,8 +26,6 @@ class PipelineStub:
 
 
 def cliente_api(stub: PipelineStub, cors: str = "http://localhost:5173") -> TestClient:
-    import os
-
     os.environ["CORS_ORIGINS"] = cors
     return TestClient(crear_app(pipeline=stub))
 
@@ -124,3 +126,50 @@ def test_cors_origen_ajeno_bloqueado():
         headers={"X-Session-ID": SESION, "Origin": "https://sitio-malicioso.example"},
     )
     assert "access-control-allow-origin" not in respuesta.headers
+
+
+# --- Tarea 3.1: límite por IP en la API web ---
+
+
+def test_limite_ip_bloquea_cuarta_peticion_misma_ip(monkeypatch):
+    """Rotando X-Session-ID con la MISMA IP: la 4ª recibe 429 estado limitada."""
+    monkeypatch.setenv("RATE_LIMIT_IP_PER_MINUTE", "3")
+    stub = PipelineStub(Respuesta(reply="ok", estado="ok"))
+    cliente = TestClient(crear_app(pipeline=stub))
+    # 3 peticiones con session IDs distintos pero misma IP (testclient)
+    for i in range(3):
+        respuesta = cliente.post(
+            "/api/chat",
+            json={"query": "hola"},
+            headers={"X-Session-ID": f"sesion-{i}"},
+        )
+        assert respuesta.status_code == 200
+    # La 4ª desde la misma IP recibe 429
+    respuesta = cliente.post(
+        "/api/chat",
+        json={"query": "hola"},
+        headers={"X-Session-ID": "sesion-4"},
+    )
+    assert respuesta.status_code == 429
+    cuerpo = respuesta.json()
+    assert cuerpo["estado"] == "limitada"
+    # El stub solo vio 3 llamadas (la 4ª se bloqueó antes del pipeline)
+    assert len(stub.llamadas) == 3
+
+
+def test_ips_distintas_no_bloqueadas(monkeypatch):
+    """Con X-Forwarded-For distintos en cada petición, ninguna se bloquea."""
+    monkeypatch.setenv("RATE_LIMIT_IP_PER_MINUTE", "3")
+    stub = PipelineStub(Respuesta(reply="ok", estado="ok"))
+    cliente = TestClient(crear_app(pipeline=stub))
+    for i in range(5):
+        respuesta = cliente.post(
+            "/api/chat",
+            json={"query": "hola"},
+            headers={
+                "X-Session-ID": f"sesion-{i}",
+                "X-Forwarded-For": f"10.0.0.{i}",
+            },
+        )
+        assert respuesta.status_code == 200
+    assert len(stub.llamadas) == 5

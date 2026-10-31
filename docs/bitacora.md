@@ -10,6 +10,7 @@
 - Infraestructura Huawei Cloud **provisionada y verificada** (ECS, RDS con pgvector, red y security groups); ECS listo para desplegar.
 - DNS `innovabot.duckdns.org` apuntando a la EIP; entorno local con Docker, Ollama + `qwen2.5:3b` y pgvector de prueba operativos.
 - gitleaks activo (pre-commit + config versionada); `backend/.env` con credenciales reales verificado **fuera** del repo (gitignored, no trackeado).
+- **Hardening de seguridad LLM aplicado (D3)**: cambio `harden-llm-security` (19/20 tareas) — análisis y mitigaciones OWASP Top 10 LLM 2025 en `docs/owasp10llms-analisis.md`; detalle en `bitacora-dev.md` §4.
 - **Siguiente paso**: grupo 7 (despliegue en el ECS + Vercel), **esperando indicaciones del equipo**. Luego, commit de la implementación y `/opsx:archive`.
 
 ## 1. El proyecto en una mirada
@@ -19,6 +20,8 @@
 | Documento | Rol |
 |---|---|
 | `openspec/changes/add-fisi-rag-chatbot/` | Fuente de verdad: qué, cómo y tareas |
+| `openspec/changes/harden-llm-security/` | Cambio de seguridad (OWASP LLM Top 10 2025) |
+| `docs/owasp10llms-analisis.md` | Análisis de riesgos de seguridad LLM y mitigaciones |
 | `AGENTS.md` | Reglas para agentes y equipo (KISS, secrets, convenciones) |
 | `index-lima.html` | Prototipo de UI aprobado |
 | `docs/bitacora.md` | Este documento |
@@ -43,6 +46,7 @@
 | 14 | Deploy de cambios: manual por SSH | GitHub Actions + SWR | Un servidor, equipo pequeño; CI/CD como mejora futura | `design.md` §Despliegue |
 | 15 | Diseño UI: identidad FISI + rasgos del arte de la cultura Lima; light/dark con claro por defecto | Diseño simple azul/amarillo only | Homenaje a los habitantes de la huaca de San Marcos; aprobado por el equipo | spec `web-ui` |
 | 16 | **KISS como principio rector** | — | La solución más simple que cumpla los specs; complejidad solo justificada por requisito o riesgo | `config.yaml`, `AGENTS.md` |
+| 17 | **Hardening de seguridad LLM como cambio OpenSpec separado** (`harden-llm-security`) | Ignorar los riesgos / mezclarlos en `add-fisi` | El análisis OWASP LLM 2025 detectó riesgos Altos (inyección indirecta, consumo no acotado) y Medio-Altos (fuga de token, SSRF); se mitigan sin reabrir decisiones de producto | `docs/owasp10llms-analisis.md`, `openspec/changes/harden-llm-security/` |
 
 ## 3. Infraestructura Huawei Cloud (región LA-Santiago)
 
@@ -210,4 +214,5 @@ Lección transversal: **los tests de integración contra infraestructura real (p
 - [ ] Commit de la implementación (equipo) — gitleaks ya activo como pre-commit.
 - [ ] Grupo 7 (despliegue en ECS + Vercel): **esperando indicaciones del equipo**.
 - [ ] Tarea 7.4: crear tablas en `rag_fisi` e índice HNSW en la primera ingesta.
+- [x] Cambio `harden-llm-security` aplicado (D3, 19/20 tareas; falta verificar 6.3 con Docker y rotar el token de Telegram al desplegar).
 - [ ] `/opsx:archive` tras completar y revisar el grupo 7.

@@ -32,6 +32,18 @@ class FakeLLMPrincipal:
         return self._respuestas.pop(0)
 
 
+class LLMPrincipalQueFalla:
+    """LLM principal que siempre lanza excepción; cuenta las llamadas."""
+
+    def __init__(self, excepcion: Exception | None = None) -> None:
+        self._excepcion = excepcion or RuntimeError("fallo simulado")
+        self.llamadas: list[tuple[str, str]] = []
+
+    def completar(self, sistema: str, usuario: str) -> str:
+        self.llamadas.append((sistema, usuario))
+        raise self._excepcion
+
+
 class FakeEmbeddings:
     """Embeddings de prueba: vectores fijos; registra qué se embebió."""
 

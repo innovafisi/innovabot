@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.core.limites import LimiteExcedido
 from app.core.modelos import Respuesta
 from app.guard import mensajes
 
@@ -38,6 +39,19 @@ def _respuesta_http(respuesta: Respuesta) -> JSONResponse:
     return JSONResponse(status_code=codigo, content=_cuerpo_respuesta(respuesta))
 
 
+def _ip_cliente(request: Request) -> str:
+    """IP del cliente: X-Forwarded-For (primera IP) o request.client.host.
+
+    En producción Caddy es el único proxy, se confía en su XFF.
+    """
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "desconocida"
+
+
 @router.post("/api/chat")
 def chat(
     cuerpo: CuerpoChat,
@@ -49,6 +63,15 @@ def chat(
     if not x_session_id:
         # Sin session ID no hay identidad para el rate limit: se rechaza como limitada
         return _respuesta_http(Respuesta(reply=mensajes.SIN_SESION, estado="limitada"))
+    # Límite por IP (LLM10): rotar el session ID desde una misma IP no da cupo infinito.
+    # Se aplica ANTES de llamar al pipeline para no consumir recursos.
+    ip = _ip_cliente(request)
+    try:
+        request.app.state.limites_ip.verificar_ip(ip)
+    except LimiteExcedido as exc:
+        return _respuesta_http(
+            Respuesta(reply=mensajes.limite_excedido(exc.reintento_segundos), estado="limitada")
+        )
     resultado = pipeline.procesar(
         cuerpo.query, identidad=f"web:{x_session_id}", interfaz="web"
     )

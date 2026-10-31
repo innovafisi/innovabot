@@ -7,6 +7,13 @@ import HuacaLogo from './HuacaLogo'
 const MAX_CARACTERES = 500
 const UMBRAL_AVISO = 0.9 // aviso del contador al llegar al 90% del límite
 
+// Saneamiento de URLs de citas (cambio harden-llm-security, LLM05): solo se
+// renderizan como enlace las URLs con esquema http/https. Cualquier otro
+// esquema (javascript:, data:, etc.) se muestra como texto plano sin href.
+function esUrlSegura(url: string): boolean {
+  return url.startsWith('http://') || url.startsWith('https://')
+}
+
 const SALUDO_INICIAL =
   '¡Hola! Soy InnovaBot. Pregúntame lo que quieras sobre la FISI: admisión, planes de estudio, trámites o noticias.'
 
@@ -171,17 +178,27 @@ function Burbuja({ mensaje }: { mensaje: Mensaje }) {
       {mensaje.citas.length > 0 && (
         <div className="mt-2.5 border-t border-dashed border-slate-200 pt-2 text-xs dark:border-slate-700">
           <strong className="mb-1 block text-azul dark:text-blue-300">Fuentes:</strong>
-          {mensaje.citas.map((cita) => (
-            <a
-              key={cita.url}
-              href={cita.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 block border-l-[3px] border-terracota pl-2 text-azul hover:underline dark:text-blue-300"
-            >
-              {cita.titulo}
-            </a>
-          ))}
+          {mensaje.citas.map((cita) =>
+            // Solo enlaces http/https; el resto como texto plano (LLM05).
+            esUrlSegura(cita.url) ? (
+              <a
+                key={cita.url}
+                href={cita.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 block border-l-[3px] border-terracota pl-2 text-azul hover:underline dark:text-blue-300"
+              >
+                {cita.titulo}
+              </a>
+            ) : (
+              <span
+                key={cita.url}
+                className="mt-1 block border-l-[3px] border-terracota pl-2 text-azul dark:text-blue-300"
+              >
+                {cita.titulo}
+              </span>
+            ),
+          )}
         </div>
       )}
     </div>

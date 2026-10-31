@@ -30,7 +30,12 @@ Complementa a `backend/README.md` (operación del backend) y a `docs/bitacora.md
 El compose de desarrollo (`docker/docker-compose.yml`) publica Ollama en
 `127.0.0.1:11434` para poder verificarlo desde el host. En producción **solo
 Caddy publica puertos (80/443)**; `app` y `ollama` viven en la red interna de
-Docker. Crear dos archivos en `docker/`:
+Docker.
+
+Ambos archivos ya **viven versionados en `docker/`** (`docker-compose.prod.yml`
+y `Caddyfile`): se clonan con el repo y no se crean a mano en el ECS (así el
+`git pull` de §10 los actualiza y el rollback funciona). Se muestran aquí como
+referencia:
 
 **`docker/docker-compose.prod.yml`** — stack completo de producción:
 
@@ -46,7 +51,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    env_file: backend/.env
+    env_file: ../backend/.env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
       # OLLAMA_NUM_THREADS: NO definir aquí — el ECS tiene vCPUs uniformes y el
@@ -60,7 +65,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    env_file: backend/.env
+    env_file: ../backend/.env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
     command: python -m app.ingest
@@ -155,6 +160,13 @@ TELEGRAM_BOT_TOKEN=<token de BotFather>
 TELEGRAM_WEBHOOK_SECRET=<secret elegido por el equipo>
 
 CORS_ORIGINS=https://innovabot.vercel.app
+
+# ---- Hardening LLM (cambio harden-llm-security; defaults razonables) ----
+RATE_LIMIT_IP_PER_MINUTE=20     # límite web por IP (además del por usuario)
+LLM_MAX_TOKENS=512              # tope de tokens por respuesta del LLM principal
+LLM_TIMEOUT_SECONDS=30          # timeout de la llamada al LLM principal
+EMBEDDINGS_REVISION=614241f622f53c4eeff9890bdc4f31cfecc418b3  # revisión HF del modelo e5
+INGESTA_HOSTS_PERMITIDOS=       # hosts extra de la allowlist anti-SSRF (vacío = solo portales UNMSM)
 ```
 
 > `backend/.env` está en `.gitignore` y gitleaks lo vigila: jamás commitearlo.
@@ -184,10 +196,15 @@ curl -fsS https://innovabot.duckdns.org/docs -o /dev/null && echo "OK: API viva 
 
 ## 5. Light LM en el volumen de Ollama (tarea 7.3)
 
+> **Cambio `harden-llm-security` (LLM03):** el modelo se descarga por digest
+> para garantizar que es exactamente la versión revisada (un tag puede ser
+> re-publicado). Digest obtenido del registry de Ollama (2026-10-31):
+> `sha256:161ddde4c9cd07c9f1ccb4e0167c434bce72caeb3fc1844262fa66bc877b0426`.
+
 ```bash
 cd /opt/innovabot
 docker compose -f docker/docker-compose.prod.yml exec ollama \
-    ollama pull qwen2.5:3b-instruct-q4_K_M      # ~1.9 GB, una sola vez
+    ollama pull qwen2.5:3b-instruct-q4_K_M@sha256:161ddde4c9cd07c9f1ccb4e0167c434bce72caeb3fc1844262fa66bc877b0426
 ```
 
 Verificación de que el modelo quedó en el volumen (tarea 7.3) — en producción
@@ -242,12 +259,19 @@ with conn.cursor() as cur:
 
 ## 7. Webhook de Telegram (tarea 7.5)
 
+> **Cambio `harden-llm-security` (LLM02):** la ruta es FIJA
+> (`/telegram/webhook`) y el token del bot **ya no viaja en la URL** — la
+> autenticación es el header `X-Telegram-Bot-Api-Secret-Token` que firma
+> Telegram. Al desplegar esta versión por primera vez: re-registrar el
+> webhook con la URL nueva y **rotar el token** en BotFather (el token
+> antiguo viajó en URLs/access logs).
+
 Con el stack vivo y TLS emitido:
 
 ```bash
 source /opt/innovabot/backend/.env
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  -d "url=https://innovabot.duckdns.org/telegram/webhook/${TELEGRAM_BOT_TOKEN}" \
+  -d "url=https://innovabot.duckdns.org/telegram/webhook" \
   -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
   -d "allowed_updates=[\"message\"]"
 ```

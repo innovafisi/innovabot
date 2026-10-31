@@ -1,0 +1,5 @@
+# TLS automático con Let's Encrypt contra el DNS gratuito (design.md §Despliegue).
+# Si algún día hay subdominio institucional, se cambia esta línea y nada más.
+innovabot.duckdns.org {
+    reverse_proxy app:8000
+}

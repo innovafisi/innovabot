@@ -44,13 +44,28 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 5
     rate_limit_per_hour: int = 30
     max_query_chars: int = 500
+    # Límite adicional por IP (harden-llm-security, LLM10): rotar el session ID
+    # desde una misma IP no debe dar cupo infinito. Solo aplica a la web.
+    rate_limit_ip_per_minute: int = 20
+
+    # LLM principal: acotar consumo por llamada (harden-llm-security, LLM10).
+    llm_max_tokens: int = 512
+    llm_timeout_seconds: float = 30.0
 
     # Retrieval: top-k y similitud mínima para considerar un fragmento relevante.
     retrieval_top_k: int = 5
     retrieval_min_similitud: float = 0.55
 
-    # Embeddings: mismo modelo garantizado en ingesta y consulta.
+    # Embeddings: mismo modelo garantizado en ingesta y consulta. La revisión
+    # fija (commit de Hugging Face) protege la integridad del modelo
+    # (harden-llm-security, LLM03): sin ella, "latest" podría cambiar el
+    # espacio vectorial bajo nuestros pies.
     embeddings_model: str = "intfloat/multilingual-e5-small"
+    embeddings_revision: str = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+
+    # Ingesta: hosts extra permitidos para descargar PDFs, separados por coma
+    # (además de los dominios oficiales fijos en ingestion/pdfs.py).
+    ingesta_hosts_permitidos: str = ""
 
     # Ingesta: rutas de los archivos de conocimiento curado (relativas a backend/).
     faqs_md: str = "data/faqs.md"
@@ -60,6 +75,11 @@ class Settings(BaseSettings):
     def origenes_cors(self) -> list[str]:
         """Orígenes CORS como lista (limpia de espacios y vacíos)."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def hosts_ingesta_extra(self) -> list[str]:
+        """Hosts extra de la allowlist de ingesta como lista."""
+        return [h.strip() for h in self.ingesta_hosts_permitidos.split(",") if h.strip()]
 
 
 @lru_cache

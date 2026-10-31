@@ -6,6 +6,7 @@ LM → retrieval → LLM principal → validación — y deja el log estructurad
 cada consulta recibida (spec rag-answering).
 """
 
+import logging
 import time
 
 from app.core.clientes import (
@@ -18,8 +19,10 @@ from app.core.limites import LimiteExcedido, LimitesUso
 from app.core.logs import registrar_bloqueo, registrar_consulta
 from app.core.modelos import Cita, Respuesta
 from app.core.settings import get_settings
-from app.guard import light_lm_guard, mensajes, regex_guard
+from app.guard import fuga, light_lm_guard, mensajes, regex_guard
 from app.rag import generacion, retrieval, validacion
+
+logger = logging.getLogger("innovabot")
 
 
 def armar_citas(fragmentos) -> list[Cita]:
@@ -31,6 +34,24 @@ def armar_citas(fragmentos) -> list[Cita]:
             vistas.add(f.url)
             citas.append(Cita(titulo=f.titulo, url=f.url))
     return citas
+
+
+def fragmentos_usados(
+    indices: list[int] | None, fragmentos: list
+) -> list:
+    """Selecciona los fragmentos citados por índice 1-based.
+
+    - indices es None o vacío → todos los fragmentos (fallback).
+    - Índices fuera de rango o no enteros se ignoran.
+    - Si tras filtrar queda vacío → fallback a todos.
+    """
+    if not indices:
+        return fragmentos
+    seleccionados = []
+    for idx in indices:
+        if isinstance(idx, int) and 1 <= idx <= len(fragmentos):
+            seleccionados.append(fragmentos[idx - 1])
+    return seleccionados if seleccionados else fragmentos
 
 
 class Orquestador:
@@ -105,19 +126,43 @@ class Orquestador:
                 interfaz, inicio,
             )
         # 7. Generación + validación anti-alucinación (1 reintento con feedback)
-        respuesta_texto = generacion.generar(consulta, fragmentos, self.cliente_llm)
-        if not validacion.validar(respuesta_texto, fragmentos, self.cliente_light):
+        try:
             respuesta_texto = generacion.generar(
-                consulta, fragmentos, self.cliente_llm,
-                feedback="afirma solo lo que los fragmentos respaldan",
+                consulta, fragmentos, self.cliente_llm
             )
-            if not validacion.validar(respuesta_texto, fragmentos, self.cliente_light):
-                return self._cerrar(
-                    mensajes.NO_VERIFICADA, [], "sin_resultados", guardia.categoria,
-                    interfaz, inicio,
+            indices, texto_limpio = generacion.extraer_fuentes(respuesta_texto)
+            if not validacion.validar(texto_limpio, fragmentos, self.cliente_light):
+                respuesta_texto = generacion.generar(
+                    consulta, fragmentos, self.cliente_llm,
+                    feedback="afirma solo lo que los fragmentos respaldan",
                 )
+                indices, texto_limpio = generacion.extraer_fuentes(respuesta_texto)
+                if not validacion.validar(
+                    texto_limpio, fragmentos, self.cliente_light
+                ):
+                    return self._cerrar(
+                        mensajes.NO_VERIFICADA, [], "sin_resultados",
+                        guardia.categoria, interfaz, inicio,
+                    )
+        except Exception as exc:
+            logger.error(
+                "Fallo en la generación con el LLM principal (%s)",
+                type(exc).__name__,
+            )
+            return self._cerrar(
+                mensajes.ERROR_SERVICIO, [], "sin_resultados", guardia.categoria,
+                interfaz, inicio,
+            )
+        # 8. Filtro de salida anti-fuga (harden-llm-security, LLM07)
+        if fuga.contiene_fuga(texto_limpio):
+            registrar_bloqueo("fuga_system_prompt", interfaz)
+            return self._cerrar(
+                mensajes.BLOQUEADA, [], "bloqueada", guardia.categoria,
+                interfaz, inicio,
+            )
+        fragmentos_cita = fragmentos_usados(indices, fragmentos)
         return self._cerrar(
-            respuesta_texto, armar_citas(fragmentos), "ok", guardia.categoria,
+            texto_limpio, armar_citas(fragmentos_cita), "ok", guardia.categoria,
             interfaz, inicio,
         )
 

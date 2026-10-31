@@ -28,6 +28,13 @@ NO_VERIFICADA = (
     f"oficial: {PORTAL_OFICIAL}"
 )
 
+# Fallo del propio servicio (timeout o error del LLM principal): mensaje
+# amigable sin detalles técnicos (harden-llm-security, LLM02/LLM10).
+ERROR_SERVICIO = (
+    "Ocurrió un problema de mi lado al procesar tu consulta. "
+    "Por favor intenta de nuevo más tarde."
+)
+
 SIN_SESION = "No pude identificar tu sesión. Recarga la página e intenta de nuevo."
 
 
