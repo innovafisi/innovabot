@@ -10,8 +10,9 @@
 - Infraestructura Huawei Cloud **provisionada y verificada** (ECS, RDS con pgvector, red y security groups); ECS listo para desplegar.
 - DNS `innovabot.duckdns.org` apuntando a la EIP; entorno local con Docker, Ollama + `qwen2.5:3b` y pgvector de prueba operativos.
 - gitleaks activo (pre-commit + config versionada); `backend/.env` con credenciales reales verificado **fuera** del repo (gitignored, no trackeado).
-- **Hardening de seguridad LLM aplicado (D3)**: cambio `harden-llm-security` (19/20 tareas) — análisis y mitigaciones OWASP Top 10 LLM 2025 en `docs/owasp10llms-analisis.md`; detalle en `bitacora-dev.md` §4.
-- **Siguiente paso**: grupo 7 (despliegue en el ECS + Vercel), **esperando indicaciones del equipo**. Luego, commit de la implementación y `/opsx:archive`.
+- **Hardening de seguridad LLM aplicado y completo (D3–D4)**: cambio `harden-llm-security` (20/20) — análisis y mitigaciones OWASP Top 10 LLM 2025 en `docs/owasp10llms-analisis.md`.
+- **Grupo 7 desplegado en el ECS (D4)**: stack prod con TLS, primera ingesta (242 fragmentos), webhook de Telegram registrado, cron semanal; latencia optimizada a ~11 s (cambio `reduce-validation-latency`). ECS migrado a flavor `c7n.xlarge.2` (AVX expuesto). Pendientes: 7.5 (E2E Telegram + rotar token) y 7.6 (Vercel).
+- **Siguiente paso**: cerrar 7.5/7.6, commit/push de los fixes de despliegue y `/opsx:archive`.
 
 ## 1. El proyecto en una mirada
 
@@ -57,7 +58,7 @@ Provisionada por el equipo; verificada en esta sesión.
 | VPC `vpc-innova` | 192.168.0.0/16 | — |
 | Subnet `subnet-innova` | 192.168.0.0/24, AZ Central | — |
 | Security group `sg-innova` | Inbound: 80/443 abiertos; SSH restringido a la IP del equipo; 5432 solo desde la VPC | Reglas confirmadas en consola |
-| ECS `ecs-innovabot` | 4 vCPU / 8 GB RAM, Ubuntu Server, EIP | Setup completado (§4) |
+| ECS `ecs-innovabot` | 4 vCPU / 8 GB RAM, Ubuntu Server, EIP; flavor migrado a `c7n.xlarge.2` (D4: expone AVX, necesario para el light LM) | Setup completado (§4); despliegue D4 en `bitacora-dev.md` §4 |
 | RDS `rds-innovabot` | PostgreSQL 18, General 2 vCPU / 8 GB, Cloud SSD 60 GB, Single, AZ1, puerto 5432; **pgvector instalado**, DB `rag_fisi`; IP privada **192.168.0.168** | `nc` succeeded (§4.6) |
 | DNS `innovabot.duckdns.org` | Apunta a la EIP (estática: configurado una vez, sin updater) | `nslookup` verificado (§5) |
 
@@ -212,7 +213,8 @@ Lección transversal: **los tests de integración contra infraestructura real (p
 - [x] Commit inicial del repo (equipo) — mensaje sugerido en §8.
 - [x] `/opsx:apply`: grupos 1–6 en local (S2).
 - [ ] Commit de la implementación (equipo) — gitleaks ya activo como pre-commit.
-- [ ] Grupo 7 (despliegue en ECS + Vercel): **esperando indicaciones del equipo**.
-- [ ] Tarea 7.4: crear tablas en `rag_fisi` e índice HNSW en la primera ingesta.
-- [x] Cambio `harden-llm-security` aplicado (D3, 19/20 tareas; falta verificar 6.3 con Docker y rotar el token de Telegram al desplegar).
-- [ ] `/opsx:archive` tras completar y revisar el grupo 7.
+- [x] Grupo 7 desplegado en el ECS (D4) — salvo 7.5 (E2E Telegram + rotar token) y 7.6 (Vercel).
+- [x] Tarea 7.4: tablas e índice HNSW creados; primera ingesta con 242 fragmentos (D4).
+- [x] Cambio `harden-llm-security` completo (20/20, verificado en el ECS, D4).
+- [ ] Commit/push de la implementación y fixes de despliegue (equipo).
+- [ ] `/opsx:archive` de `add-fisi-rag-chatbot` tras cerrar 7.5/7.6 (los cambios `harden-llm-security` y `reduce-validation-latency` ya están archivados; `openspec/specs/` tiene 7 capabilities).

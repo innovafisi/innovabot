@@ -4,13 +4,14 @@
 > Sigue la misma estructura que `docs/bitacora.md` (la memoria de planificación/infra); esta bitácora registra el *cómo se implementó*.
 > Convención de actualización en la §10. La fuente de verdad de las tareas es `openspec/changes/add-fisi-rag-chatbot/tasks.md` (41 tareas en 7 grupos).
 
-## Estado actual (2026-10-31, cierre de sesión D3)
+## Estado actual (2026-10-31, cierre de sesión D4)
 
-- **Cambio `harden-llm-security` aplicado y verificado (19/20 tareas)**: mitigaciones del análisis OWASP Top 10 LLM 2025 (`docs/owasp10llms-analisis.md`) — detalle en §4.
-- **Grupos 1–6 de `add-fisi-rag-chatbot` completos** (34/41); falta el grupo 7 (despliegue ECS + Vercel), **esperando indicaciones del equipo**.
-- Verificación D3: backend **146 passed / 4 skipped** (integración se salta sin `TEST_DATABASE_URL`/Ollama) + `ruff` limpio; frontend lint 0 errores, **11/11 tests**, build ✓; lockfile verificado con instalación limpia (`--require-hashes` + `pip check`) y `pip-audit` sin CVEs.
-- **Pendiente del cambio**: tarea 6.3 (verificar `docker compose config` con los digests — esta máquina no tiene Docker CLI) y **rotar el token del bot** al desplegar (viajó en URLs/access logs antes de la ruta fija del webhook).
-- Entorno D3: esta máquina no traía `backend/.venv` (el de D2 era otro entorno); reconstruido con `pip install ".[dev]"`. Docker CLI y Ollama local no disponibles aquí.
+- **Grupo 7 desplegado en el ECS (39/41 tareas)**: stack prod Up (app + ollama + caddy) con TLS Let's Encrypt, modelo light LM verificado por digest, **primera ingesta: 242 fragmentos**, webhook de Telegram registrado (`getWebhookInfo` limpio) y cron semanal instalado. Pendientes: **7.5** (prueba end-to-end con mensaje real + rotar el token del bot) y **7.6** (Vercel, requiere la cuenta del equipo).
+- **Cambio `reduce-validation-latency` aplicado y verificado**: validación con contexto acotado (3 fragmentos × 600 chars) → **latencia en caliente ~11 s** (antes 32–40 s, −70%).
+- **`harden-llm-security` completo (20/20)**: la 6.3 (digests vía `docker compose config`) se verificó en el ECS.
+- Verificación D4: 150 tests unitarios + ruff limpio (local); `/api/chat` end-to-end `estado: ok` en producción con citas.
+- **ECS**: flavor migrado a `c7n.xlarge.2` (AVX expuesto — incidente §7.8); acceso SSH por clave desde la laptop del equipo; **login root por password aún activo** (rotar y volver a `PasswordAuthentication no`).
+- **Pendiente del equipo**: commit/push de los fixes de despliegue (`backend/app/ingest.py`, `COPY backend/data`, compose con `hf-cache`/`OLLAMA_NUM_THREADS`, lock regenerado con 3.12, guía §5/§12), Vercel (7.6), E2E Telegram + rotación de token (7.5), rotar password root.
 - Hook de gitleaks: mecanismo único versionado en `.githooks/` — **el equipo debe ejecutar `git config core.hooksPath .githooks` una vez** antes del próximo commit.
 - Sin comandos git: los commits los maneja exclusivamente el equipo.
 
@@ -182,9 +183,19 @@ El equipo confirmó que el token de BotFather ya está en `backend/.env` (junto 
 - [x] 6.5 Filtro de chats privados ANTES del pipeline. Verificado: update de grupo → sin respuesta, sin pipeline, sin consumo; 10 mensajes de grupo no consumen el cupo del usuario privado; update privado se procesa con normalidad.
 - Detalle de implementación: el campo `from` de Telegram es un objeto User (no un int) — modelo `UsuarioTelegram` con alias; si faltara `from`, la identidad cae al `chat.id` (chats privados coinciden).
 
-### Grupo 7 — Despliegue en Huawei Cloud
+### Grupo 7 — Despliegue en Huawei Cloud (D4)
 
-Esperando indicaciones del equipo (bitacora §Pendientes).
+Desplegado y verificado en el ECS `ecs-innovabot` (flavor `c7n.xlarge.2`), operando por SSH:
+
+- [x] 7.1 Stack prod Up (app + ollama + caddy); `/docs` responde vía Caddy con TLS.
+- [x] 7.2 Cert Let's Encrypt emitido por Caddy contra `innovabot.duckdns.org`; SG verificado en S1.
+- [x] 7.3 Modelo `qwen2.5:3b-instruct-q4_K_M` en volumen persistente; digest `161ddde4…` verificado con `ollama list` (el `pull` no acepta `@sha256`, §7.12); guardián JSON válido en ~5 s.
+- [x] 7.4 Tablas + índice HNSW creados por la ingesta idempotente; **242 fragmentos** (portal 209, faq 8, noticia 6). PDFs aportaron 0: el único enlace del portal es un PDF escaneado (ilegible), registrado y excluido según spec — procesar más páginas de PDFs queda como mejora del contenido.
+- [ ] 7.5 Webhook registrado y limpio; **falta**: mensaje real end-to-end y **rotar el token** en BotFather (el actual viajó en URLs antes de la ruta fija).
+- [ ] 7.6 Vercel: pendiente del equipo (root `frontend/`, `VITE_API_URL`, luego ajustar `CORS_ORIGINS`).
+- [x] 7.7 Comandos de `docs/guia-deploy.md` ejecutados tal cual; los desvíos encontrados quedaron corregidos en guía y repo (§7.9–7.13).
+
+Cambio `reduce-validation-latency` (D4): validación acotada (3 fragmentos × 600 chars, `app/rag/validacion.py`) → latencia en caliente **10.7–10.9 s** (antes 32–40 s). En el límite del objetivo <10 s; si se requiere bajar más: recortar más el contexto (riesgo de falsos "sin respaldo"), light LM más pequeño o más vCPU.
 
 ### Cambio `harden-llm-security` (D3) — hardening OWASP Top 10 LLM
 
@@ -236,6 +247,12 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 | 5 | La búsqueda semántica fallaba con `operator does not exist: vector <=> double precision[]` | psycopg adapta listas Python a arrays de Postgres; el operador `<=>` de pgvector exige tipo `vector` (el INSERT funcionaba por cast de asignación, la expresión no) | `AlmacenVectorial.buscar()`: embedding serializado con `json.dumps` (formato texto de pgvector) + cast explícito `::vector`. Cazado por el test de integración 2.6 |
 | 6 | `docker` fallaba en shells nuevos con `docker-credential-desktop: executable file not found in %PATH%` | El CLI fuera de la app de Docker Desktop no tiene el bin dir en PATH | Prependear `C:\Program Files\Docker\Docker\resources\bin` al PATH de la sesión (§3.1) |
 | 7 | El test de indexación fallaba por filas ajenas ("FAQ matrícula" del test de retrieval) | Tests de integración sin aislamiento: el fixture de retrieval trunca al inicio pero no al final | TRUNCATE defensivo al inicio del test de indexación, igual que el fixture |
+| 8 | Ollama caía con `illegal instruction` en `libggml-cpu-cascadelake.so` (500 en `/api/generate`) | El flavor original enmascaraba AVX al guest pese a que la CPU física (Xeon Gold 6278C) lo tiene; Ollama elige la lib AVX512 por el NOMBRE de la CPU, no por flags | Migración a flavor `c7n.xlarge.2` (Xeon 6348, AVX2/AVX-512 expuestos). Parche previo (ocultar libs AVX → SSE42) descartado: funcional pero ~84 s por generación trivial. De paso se fijó `OLLAMA_NUM_THREADS=4` en el compose prod (determinístico en 4 vCPU — corrige §7.4: ya no se deja sin definir en el ECS) |
+| 9 | `No module named app.ingest` en el contenedor de ingesta | El entrypoint documentado (`python -m app.ingest`) no existía: el paquete real es `app/ingestion` | Alias `backend/app/ingest.py` que delega en `app.ingestion.__main__.main` — el comando documentado, el `command` de los compose y el cron funcionan tal cual |
+| 10 | `FileNotFoundError: data/secciones_portal.yml` al correr la ingesta | El Dockerfile no copiaba `backend/data/` (FAQs + YAML de secciones) a la imagen | `COPY backend/data ./data` en `docker/Dockerfile.backend` |
+| 11 | Build fallaba: `uvloop>=0.15.1` sin pin con `--require-hashes` | El lock se generó con Python 3.14 (donde uvloop no existe); en el contenedor 3.12 el extra `[standard]` de uvicorn lo exige | Lock regenerado con Python 3.12 (pip-compile en contenedor efímero) y devuelto al repo |
+| 12 | `ollama pull qwen2.5:…@sha256:…` → `400 invalid model name` | El `pull` de Ollama no soporta digests (a diferencia de `docker pull`) | Pull por tag + verificación del digest después con `ollama list` (ID debe empezar por el digest pinneado); guía §5 actualizada |
+| 13 | Tras recrear el contenedor `app`, la primera consulta tardaba minutos | La caché de Hugging Face (modelo e5, ~470 MB) vivía dentro del contenedor y se perdía en cada recreate | Volumen `hf-cache` montado en `app` e `ingest` (`docker-compose.prod.yml`); también evita la re-descarga semanal del cron de ingesta |
 
 ## 8. Lecciones
 
@@ -246,6 +263,8 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 - **CPUs híbridos rompen el auto-detect de threads de Ollama**: si la generación es decenas de veces más lenta que el prompt eval, limitar `num_thread` a los P-cores (§7.4).
 - **Los tests de integración contra infraestructura real cazan bugs que los mocks no ven**: 2 de los 4 bugs de D2 (cast pgvector, threads) solo aparecieron contra pgvector y Ollama reales. El costo de levantar los contenedores de prueba (§3.2) se paga solo.
 - **Las claves de documentación no sirven para probar gitleaks**: `AKIAIOSFODNN7EXAMPLE` y cadenas con "test"/"fake" están en los stopwords por defecto; la prueba de detección usa un secreto sintético realista.
+- **En inferencia CPU, verificar los flags del guest antes de aceptar un flavor** (`lscpu`): el nombre de la CPU puede llevar a Ollama a elegir libs AVX que el hipervisor no ejecuta (§7.8). Y un build "verificado" en local no garantiza que los comandos documentados corran en el entorno real: el despliegue D4 cazó 3 bugs que los tests no veían (§7.9–7.11).
+- **Toda caché que pese (>100 MB) va en volumen**, no en el filesystem del contenedor: cada recreate la re-descarga (§7.13).
 
 ## 9. Cronología de sesiones de desarrollo
 
@@ -254,6 +273,7 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 | 2026-10-30 | **D1 — Implementación grupos 1–6** | Conciliación 39/40→41 tareas · scaffolding backend+frontend+docker+gitleaks · settings tipado · ingesta completa con scraper real (hallazgo TLS del portal FISI, §7) · guardián regex+light LM · pipeline RAG con orquestador único · API web + SPA React con arte Lima · bot de Telegram completo · 27/41 tareas verificadas (106 tests backend + 9 frontend en verde) · pendientes: verificaciones con Docker/pgvector/Ollama, DevTools 5.3, primer commit (gitleaks) y grupo 7 |
 | 2026-10-31 | **D2 — Verificación de entorno, cierre de grupos 1–6** | Entorno completo instalado (Docker Desktop, gitleaks, sentence-transformers vía winget/pip, §3) · 7 tareas verificadas: 1.3 build, 1.5 Ollama+modelo, 1.6 gitleaks, 2.6 pgvector, 3.2 Ollama real (8.8s), 4.1 retrieval, 5.3 visual Playwright 390px · 4 bugs cazados y corregidos (§7.3–7.6): torch CUDA en Docker, threads CPU híbrido, cast pgvector, aislamiento de tests · hook gitleaks conciliado a `.githooks/` único · guía de despliegue creada (`docs/guia-deploy.md`: ECS, Vercel, webhook, cron, rollback) · 34/41 tareas, 110/110 tests backend + 9 frontend en verde |
 | 2026-10-31 | **D3 — Hardening de seguridad LLM (cambio `harden-llm-security`)** | Análisis OWASP Top 10 LLM 2025 (`docs/owasp10llms-analisis.md`) + cambio OpenSpec propuesto y aplicado · 5 subagentes en paralelo sobre base compartida (settings, `ERROR_SERVICIO`, `guard/fuga.py`) · 19/20 tareas: aislamiento de contexto anti-inyección indirecta, guardián fail-closed, canario anti-fuga, citas fieles, LLM acotado (max_tokens/timeout), límite web por IP + memoria de contadores acotada, webhook sin token en URL + anti-replay, redacción de logs, anti-SSRF en ingesta, URLs seguras en la web, lockfile con hashes + digests de imágenes/modelos · 146 tests backend + 11 frontend en verde, lock verificado con instalación limpia, pip-audit sin CVEs · venv reconstruido (esta máquina no traía el de D2) · pendientes: 6.3 (docker compose config) y grupo 7 |
+| 2026-10-31 | **D4 — Despliegue en ECS (grupo 7) + optimización de latencia** | Stack prod Up con TLS · modelo light LM verificado por digest · **ingesta: 242 fragmentos** · webhook Telegram registrado + cron semanal · acceso SSH por clave operado desde la sesión · 6 incidentes cazados y resueltos (§7.8–7.13): AVX enmascarado (migración a `c7n.xlarge.2`), alias `app.ingest`, `COPY backend/data`, lock regenerado con 3.12, pull por tag + digest, volumen `hf-cache` · cambio `reduce-validation-latency`: validación acotada (3×600) → **latencia 32–40 s → ~11 s** · `harden-llm-security` 20/20 · 39/41 tareas de `add-fisi`; pendientes 7.5 (E2E Telegram + rotar token) y 7.6 (Vercel) · 150 tests unitarios en verde |
 
 ## 10. Convención para actualizar esta bitácora
 
@@ -269,9 +289,12 @@ docker/                     # Dockerfiles + docker-compose (dev y producción)
 - [x] Tests de integración pgvector (2.6, 4.1) con `TEST_DATABASE_URL` + extra `[ingest]` (D2, §3.3).
 - [x] Prueba de integración contra Ollama real (3.2) (D2, tras el fix de threads §7.4).
 - [x] Revisión en viewport móvil de la identidad visual (5.3) (D2, Playwright §3.4).
-- [ ] Commit de la implementación (equipo) — **antes**: `git config core.hooksPath .githooks` (una vez por clon) para activar el hook de gitleaks versionado.
-- [ ] Grupo 7 (despliegue ECS + Vercel): esperando indicaciones del equipo; el token de BotFather y la API key de MaaS ya están en `backend/.env`.
-- [x] Cambio `harden-llm-security` aplicado (D3, 19/20 tareas — ver §4).
-- [ ] Tarea 6.3: verificar `docker compose -f docker/docker-compose.prod.yml config` con los digests (requiere Docker CLI / el ECS).
-- [ ] Rotar el token del bot de Telegram al desplegar (viajó en URLs/access logs antes de la ruta fija del webhook, tarea 4.1).
-- [ ] `/opsx:archive` tras completar y revisar el grupo 7.
+- [ ] Commit/push de la implementación + fixes de despliegue (equipo) — **antes**: `git config core.hooksPath .githooks` (una vez por clon). Incluye: `backend/app/ingest.py`, `COPY backend/data` en el Dockerfile, compose prod (`hf-cache`, `OLLAMA_NUM_THREADS`), lock regenerado con 3.12, guía §5/§12 y el cambio `reduce-validation-latency`.
+- [x] Grupo 7 desplegado en el ECS (D4, ver §4) — salvo 7.5 y 7.6.
+- [x] Cambio `harden-llm-security` aplicado y completo (20/20; la 6.3 se verificó en el ECS, D4).
+- [x] Cambio `reduce-validation-latency` aplicado y verificado (D4): latencia ~11 s en caliente.
+- [ ] 7.5: probar Telegram end-to-end (mensaje real) y **rotar el token del bot** (viajó en URLs antes de la ruta fija del webhook).
+- [ ] 7.6: desplegar el frontend en Vercel (equipo) y ajustar `CORS_ORIGINS` con la URL real.
+- [ ] Seguridad del ECS: rotar el password de root (quedó en el historial de la sesión) y volver a `PasswordAuthentication no`.
+- [x] `/opsx:archive` de `harden-llm-security` y `reduce-validation-latency` (D4): sus requirements ya viven en `openspec/specs/` (7 capabilities; los *Purpose* se ajustaron a mano porque el CLI conserva el existente al fusionar).
+- [ ] `/opsx:archive` de `add-fisi-rag-chatbot` tras cerrar 7.5/7.6 — archivará **último** para fusionar sus requirements base sobre los ya existentes.

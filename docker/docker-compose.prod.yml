@@ -13,9 +13,10 @@ services:
     env_file: ../backend/.env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      # OLLAMA_NUM_THREADS: NO definir aquí — el ECS tiene vCPUs uniformes y el
-      # auto-detect de Ollama es correcto (bitacora-dev §7.4: solo los CPUs
-      # híbridos de desarrollo necesitan el límite).
+    volumes:
+      # Caché de Hugging Face (modelo e5 ~470 MB): persiste entre recreaciones
+      # del contenedor; sin esto, cada recreate la re-descarga (incidente D4).
+      - hf-cache:/root/.cache/huggingface
     restart: always
     depends_on:
       - ollama
@@ -28,6 +29,9 @@ services:
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
     command: python -m app.ingest
+    volumes:
+      # Misma caché de HF que app: el cron semanal no re-descarga el modelo e5.
+      - hf-cache:/root/.cache/huggingface
     profiles:
       - ingest
     restart: "no"
@@ -43,6 +47,10 @@ services:
     environment:
       # Una generación a la vez: evita disputa de RAM (design.md §Modelos).
       OLLAMA_NUM_PARALLEL: "1"
+      # Threads explícitos = núm. de vCPUs del ECS (4): determinístico frente
+      # al auto-detect. Fijado durante el despliegue D4 (bitacora-dev §7.8);
+      # en CPUs híbridos de desarrollo este límite es OBLIGATORIO (§7.4).
+      OLLAMA_NUM_THREADS: "4"
     volumes:
       - ollama-data:/root/.ollama
     restart: always
@@ -67,5 +75,6 @@ services:
 
 volumes:
   ollama-data:
+  hf-cache:
   caddy-data:
   caddy-config:

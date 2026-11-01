@@ -231,6 +231,23 @@ curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   Face del modelo de embeddings), digest del modelo de Ollama y digests de
   las imágenes de contenedor — ver `docs/guia-deploy.md`.
 
+## Despliegue y operación (tarea 7.7)
+
+El paso a paso completo vive en `docs/guia-deploy.md` (ECS + Vercel, con
+verificación y problemas comunes). Lo esencial para operar el ECS:
+
+```bash
+# Despliegue de cambios (manual, por SSH — repo público, pull sin credenciales)
+cd /opt/innovabot
+git pull
+docker compose -f docker/docker-compose.prod.yml build
+docker compose -f docker/docker-compose.prod.yml up -d
+curl -fsS https://innovabot.duckdns.org/docs -o /dev/null && echo "OK"
+
+# Disparo manual de la ingesta (contenido urgente; el cron semanal corre lunes 04:00)
+docker compose -f docker/docker-compose.prod.yml --profile ingest run --rm -T ingest
+```
+
 ## Tests
 
 Desde `backend/`:

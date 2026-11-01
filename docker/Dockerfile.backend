@@ -12,6 +12,7 @@ WORKDIR /srv
 COPY backend/pyproject.toml ./
 COPY backend/requirements.lock ./
 COPY backend/app ./app
+COPY backend/data ./data
 
 # Dependencias base desde el lock con verificación de hashes (tarea 6.1).
 # Esto instala las versiones fijadas y verifica integridad antes de continuar.

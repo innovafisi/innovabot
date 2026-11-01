@@ -196,35 +196,40 @@ curl -fsS https://innovabot.duckdns.org/docs -o /dev/null && echo "OK: API viva 
 
 ## 5. Light LM en el volumen de Ollama (tarea 7.3)
 
-> **Cambio `harden-llm-security` (LLM03):** el modelo se descarga por digest
-> para garantizar que es exactamente la versión revisada (un tag puede ser
-> re-publicado). Digest obtenido del registry de Ollama (2026-10-31):
+> **Integridad del modelo (harden-llm-security, LLM03):** `ollama pull` NO
+> acepta `@sha256:` (responde `400 invalid model name`); se descarga por tag y
+> se **verifica el digest después** contra el valor pinneado (config digest,
+> obtenido del registry de Ollama, 2026-10-31):
 > `sha256:161ddde4c9cd07c9f1ccb4e0167c434bce72caeb3fc1844262fa66bc877b0426`.
 
 ```bash
 cd /opt/innovabot
 docker compose -f docker/docker-compose.prod.yml exec ollama \
-    ollama pull qwen2.5:3b-instruct-q4_K_M@sha256:161ddde4c9cd07c9f1ccb4e0167c434bce72caeb3fc1844262fa66bc877b0426
+    ollama pull qwen2.5:3b-instruct-q4_K_M
 ```
 
-Verificación de que el modelo quedó en el volumen (tarea 7.3) — en producción
-Ollama no publica puertos, así que se consulta desde dentro del contenedor:
+Verificación de que el modelo quedó en el volumen y con el digest esperado
+(tarea 7.3) — en producción Ollama no publica puertos y la imagen no trae
+`curl`, así que se usa `ollama list` desde dentro del contenedor:
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml exec ollama \
-    curl -s localhost:11434/api/tags | grep qwen2.5
+docker compose -f docker/docker-compose.prod.yml exec ollama ollama list
+# NAME                          ID           SIZE
+# qwen2.5:3b-instruct-q4_K_M    161ddde4c9cd 1.9 GB   ← debe empezar por el digest pinneado
 ```
 
 Y una consulta real de guardián (debe devolver JSON parseable; en el ECS de
-4 vCPU dedicados el objetivo de latencia es < 10 s por respuesta completa):
+4 vCPU dedicados el objetivo de latencia es < 10 s por respuesta completa).
+Con `exec -T` y heredoc se evitan los problemas de comillas/saltos del `-c`
+multilínea:
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml exec app \
-    python -c "
+docker compose -f docker/docker-compose.prod.yml exec -T app python - <<'PY'
 from app.core.clientes import ClienteLightLM
 from app.guard.light_lm_guard import evaluar_consulta
 r = evaluar_consulta('¿hasta cuándo puedo matricularme en la FISI?', ClienteLightLM())
-print(r.safe, r.categoria, r.consulta_reescrita)"
+print(r.safe, r.categoria, r.consulta_reescrita)
+PY
 ```
 
 ---
@@ -365,6 +370,9 @@ volúmenes de Ollama (modelo) y Caddy (certificados) sobreviven a despliegues.
 | Certificado no emite | DNS no apunta a la EIP, o el SG bloquea 80/443 | `nslookup` + reglas del SG; Caddy reintenta solo |
 | `nc` al RDS: timeout | SG bloquea 5432 desde la VPC | regla inbound 5432 desde 192.168.0.0/16 |
 | `nc` al RDS: refused | IP equivocada o instancia caída | IP privada en la consola del RDS (lección bitacora §4.6) |
+| Ollama da 500 y `dmesg` muestra `illegal instruction ... libggml-cpu-cascadelake.so` | El flavor enmascara AVX al guest; Ollama elige la lib AVX512 por el nombre de la CPU | Migrar a un flavor que exponga AVX (se usó `c7n.xlarge.2`); verificar con `lscpu` (flags avx) antes de aceptar el flavor (incidente D4, bitacora-dev §7.8) |
+| `ollama pull modelo@sha256:...` → `400 invalid model name` | El `pull` de Ollama no soporta digests | Bajar por tag y verificar el digest después con `ollama list` (paso 5) |
+| `No module named app.ingest` | Deploy sin el último código | Resuelto en D4: `backend/app/ingest.py` es alias de `app.ingestion`; hacer `git pull` y rebuild |
 | Ingesta falla contra el portal FISI | Cadena TLS incompleta del portal | Ya resuelto en la imagen (`intermedio_sectigo.crt`); si cambia el certificado del portal, actualizar ese bundle |
 | Ollama lento en el ECS | RAM justa (modelo + ingesta simultáneos) | El swap de 4 GB es la red de seguridad; correr la ingesta en el cron de madrugada (ya lo hace) |
 | Web carga pero las respuestas son de ejemplo | Falta `VITE_API_URL` en Vercel | paso 8.3; redeployar |
